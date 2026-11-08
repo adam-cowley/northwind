@@ -51,7 +51,9 @@ class OrderRepository extends Repository<Order> {
 		return this.neode.read(builder, {
 			hydrate: Order,
 			alias: "o",
-			database: this.database,
+			// exactOptionalPropertyTypes: an explicit undefined would reject the
+			// hydrate overload and fall through to the raw one
+			...(this.database === undefined ? {} : { database: this.database }),
 		});
 	}
 }
