@@ -79,8 +79,7 @@ export async function seed(
 	//    each embedding from the name (the bulk UNWIND path cannot SET
 	//    vector-backed properties: library shortcut, bulk.service.ts) —
 	//    then relate SUPPLIED_BY/PART_OF from the dataset's foreign keys
-	const txProducts = await neode.openWriteTransaction();
-	try {
+	await neode.inWriteTransaction(async (txProducts) => {
 		for (const product of data.products) {
 			const productID = product["productID"] as number;
 
@@ -112,11 +111,9 @@ export async function seed(
 				await txProducts.relate(Product, productEntity, category, "partOf");
 			}
 		}
+
 		await txProducts.commit();
-	} catch (error) {
-		await txProducts.rollback();
-		throw error;
-	}
+	});
 
 	// 4. Territory/Employee relationships (map-model targets)
 	await relateReferenceEdges(neode, data);
@@ -134,8 +131,7 @@ export async function seed(
 		linesByOrder.set(line.orderID, lines);
 	}
 
-	const txOrders = await neode.openWriteTransaction();
-	try {
+	await neode.inWriteTransaction(async (txOrders) => {
 		for (const order of data.orders) {
 			const orderEntity = await txOrders.find(Order, order.orderID);
 
@@ -177,10 +173,7 @@ export async function seed(
 		}
 
 		await txOrders.commit();
-	} catch (error) {
-		await txOrders.rollback();
-		throw error;
-	}
+	});
 
 	// 6. The Cypher-script step: :Bestseller labels
 	const path = await writeBestsellerScript();
@@ -216,9 +209,7 @@ async function relateReferenceEdges(
 	neode: Neode,
 	data: Awaited<ReturnType<typeof loadDataset>>,
 ): Promise<void> {
-	const tx = await neode.openWriteTransaction();
-
-	try {
+	await neode.inWriteTransaction(async (tx) => {
 		for (const { territoryID, regionID } of data.territories) {
 			const territory = await tx.find(TerritoryModel, territoryID);
 			const region = await tx.find(RegionModel, regionID);
@@ -251,10 +242,7 @@ async function relateReferenceEdges(
 		}
 
 		await tx.commit();
-	} catch (error) {
-		await tx.rollback();
-		throw error;
-	}
+	});
 }
 
 /**
@@ -334,9 +322,7 @@ export async function seedSyntheticOrders(
 	for (let offset = 0; offset < compacted.length; offset += CHUNK) {
 		const chunk = compacted.slice(offset, offset + CHUNK);
 
-		const tx = await neode.openWriteTransaction();
-
-		try {
+		await neode.inWriteTransaction(async (tx) => {
 			const builder = new Builder();
 
 			builder
@@ -390,15 +376,10 @@ export async function seedSyntheticOrders(
 
 			builder.return("count(o) AS created");
 
-			const { query, params } = builder.build();
-
-			await tx.writeCypher(query, { ...params, rows: chunk });
+			await tx.write(builder, { rows: chunk });
 
 			await tx.commit();
-		} catch (error) {
-			await tx.rollback();
-			throw error;
-		}
+		});
 	}
 }
 

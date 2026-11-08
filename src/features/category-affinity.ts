@@ -33,8 +33,7 @@ export function createCategoryAffinityRoutes(neode: Neode): Hono {
 		);
 		builder.orderBy("sharedOrders", "DESC");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		const pairs = output.records.map((row) => ({
 			categoryA: String(row.get("categoryA")),

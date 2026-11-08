@@ -65,8 +65,7 @@ export function createSupplyExposureRoutes(neode: Neode): Hono {
 		builder.orderBy("orders", "DESC");
 		builder.orderBy("company", "ASC");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		const suppliers = output.records.map((row) => ({
 			id: Number(row.get("id")),
@@ -124,8 +123,7 @@ export function createSupplyExposureRoutes(neode: Neode): Hono {
 			"collect(DISTINCT {id: c.customerID, company: c.companyName, country: c.country}) AS customers",
 		);
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		const row = output.records[0];
 

@@ -66,11 +66,9 @@ export function createReorderNetworkRoutes(neode: Neode): Hono {
 			.whereRaw("o.shippedDate IS NULL")
 			.return("p.productID AS productID", "count(DISTINCT o) AS openOrders");
 
-		const lowStockQuery = lowStock.build();
-		const openOrdersQuery = openOrders.build();
 		const [lowStockOutput, openOrdersOutput] = await Promise.all([
-			neode.readCypher(lowStockQuery.query, lowStockQuery.params),
-			neode.readCypher(openOrdersQuery.query, openOrdersQuery.params),
+			neode.read(lowStock),
+			neode.read(openOrders),
 		]);
 
 		const openByProduct = new Map<number, number>();

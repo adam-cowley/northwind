@@ -15,19 +15,9 @@ import {
 } from "neode";
 import type Neode from "neode";
 import { currentUser, login, logout, loginPage } from "../auth.js";
-import { createBasketTwinsRoutes } from "../features/basket-twins.js";
-import { createCategoryAffinityRoutes } from "../features/category-affinity.js";
-import { createGrowthBoardRoutes } from "../features/growth-board.js";
-import { createShipperCoverageRoutes } from "../features/shipper-coverage.js";
-import { createReorderNetworkRoutes } from "../features/reorder-network.js";
-import { createSupplyExposureRoutes } from "../features/supply-exposure.js";
-import { createCustomerJourneysRoutes } from "../features/customer-journeys.js";
-import { createProductLinksRoutes } from "../features/product-links.js";
-import { createDataQualityRoutes } from "../features/data-quality.js";
-import { createRegionRollupRoutes } from "../features/region-rollup.js";
-import { createEntityDetailRoutes } from "../features/entity-detail.js";
+import { features } from "../features/index.js";
 import { mapApiError } from "./errors.js";
-import { createCountryRoutes } from "../features/country-drilldown.js";
+import { intQuery } from "./queries.js";
 
 import { Customer } from "../models/customer.js";
 import type { NorthwindService } from "../services/northwind-service.js";
@@ -186,8 +176,8 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 	// ---- Catalog ----
 	app.get("/api/catalog", async (context) => {
-		const page = Number(context.req.query("page") ?? 1);
-		const limit = Number(context.req.query("limit") ?? 12);
+		const page = intQuery(context, "page", 1);
+		const limit = intQuery(context, "limit", 12);
 
 		const filter: Record<string, unknown> = {};
 		if (context.req.query("discontinued") === "true")
@@ -284,7 +274,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 	app.get("/api/orders", async (context) => {
 		const feed = await service.feed(
 			context.req.query("after"),
-			Number(context.req.query("limit") ?? 20),
+			intQuery(context, "limit", 20),
 		);
 
 		return context.json({ ...feed, items: feed.items.map(toJson) });
@@ -305,8 +295,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 			.to("p", "Product")
 			.return("line", "p");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		return context.json({
 			order: toJson(order),
@@ -416,13 +405,13 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 	// ---- Analytics (pure Builder) ----
 	app.get("/api/analytics/revenue-by-country", async (context) => {
 		return context.json(
-			await service.revenueByCountry(Number(context.req.query("limit") ?? 10)),
+			await service.revenueByCountry(intQuery(context, "limit", 10)),
 		);
 	});
 
 	app.get("/api/analytics/top-products", async (context) => {
 		return context.json(
-			await service.topProducts(Number(context.req.query("limit") ?? 10)),
+			await service.topProducts(intQuery(context, "limit", 10)),
 		);
 	});
 
@@ -537,8 +526,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		builder.set("rel", patch, "+=");
 		builder.return("properties(rel) AS line");
 
-		const { query, params } = builder.build();
-		const output = await neode.writeCypher(query, params);
+		const output = await neode.write(builder);
 
 		const safe = jsonSafeRecord(output.records[0]!);
 
@@ -668,29 +656,10 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		});
 	});
 
-	app.route("/api/insight", createBasketTwinsRoutes(neode));
-
-	app.route("/api/insight", createCategoryAffinityRoutes(neode));
-
-	app.route("/api/insight", createGrowthBoardRoutes(neode));
-
-	app.route("/api/insight", createShipperCoverageRoutes(neode));
-
-	app.route("/api/insight", createReorderNetworkRoutes(neode));
-
-	app.route("/api/insight", createSupplyExposureRoutes(neode));
-
-	app.route("/api/insight", createCustomerJourneysRoutes(neode));
-
-	app.route("/api/insight", createProductLinksRoutes(neode));
-
-	app.route("/api/insight", createDataQualityRoutes(neode));
-
-	app.route("/api/insight", createRegionRollupRoutes(neode));
-
-	app.route("/api/entity", createEntityDetailRoutes(neode));
-
-	app.route("/api/insight", createCountryRoutes(neode));
+	// ---- Insight features: every sub-app from the registry ----
+	for (const { mount, routes } of features) {
+		app.route(mount, routes(neode));
+	}
 
 	app.get("/api/health", (context) => {
 		return context.json({

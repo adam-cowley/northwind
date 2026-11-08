@@ -55,12 +55,9 @@ export function createShipperCoverageRoutes(neode: Neode): Hono {
 		dominanceBuilder.orderBy("country");
 		dominanceBuilder.orderBy("orders", "DESC");
 
-		const totalsQuery = totalsBuilder.build();
-		const dominanceQuery = dominanceBuilder.build();
-
 		const [totalsOutput, dominanceOutput] = await Promise.all([
-			neode.readCypher(totalsQuery.query, totalsQuery.params),
-			neode.readCypher(dominanceQuery.query, dominanceQuery.params),
+			neode.read(totalsBuilder),
+			neode.read(dominanceBuilder),
 		]);
 
 		const shippers = totalsOutput.records.map((row) => ({

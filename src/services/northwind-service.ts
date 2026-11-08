@@ -32,10 +32,18 @@ import {
 import type { OrderRepository } from "../repositories/order-repository.js";
 import type { ProductRepository } from "../repositories/product-repository.js";
 import type { CustomerRepository } from "../repositories/customer-repository.js";
+import { LINE_REVENUE } from "../shared.js";
+
+/** The Product @Vector index (64-dim name embeddings) — one name, two callers. */
+const PRODUCT_VECTOR_INDEX = vectorIndexName({
+	label: "Product",
+	property: "embedding",
+	dimensions: 64,
+});
 
 /**
 App services over the concrete facade: the operations that need
-facade-level machinery (open transactions, the runner for
+facade-level machinery (managed transactions, the runner for
 PaginateService/knn) while the repositories stay on the INeode scope.
 */
 export class NorthwindService {
@@ -83,15 +91,10 @@ export class NorthwindService {
 	async search(text: string, limit = 8) {
 		const textHits = await this.products.searchProducts(text, limit);
 
-		const index = vectorIndexName({
-			label: "Product",
-			property: "embedding",
-			dimensions: 64,
-		});
 		const vectorHits = await knn<Product>(
 			this.neode.getRunner(),
 			Product,
-			index,
+			PRODUCT_VECTOR_INDEX,
 			embed(text),
 			limit,
 		);
@@ -110,16 +113,10 @@ export class NorthwindService {
 
 	/** kNN over the Product @Vector index — the query vector re-embeds the name. */
 	async similar(product: Product, k = 5) {
-		const index = vectorIndexName({
-			label: "Product",
-			property: "embedding",
-			dimensions: 64,
-		});
-
 		const hits = await knn<Product>(
 			this.neode.getRunner(),
 			Product,
-			index,
+			PRODUCT_VECTOR_INDEX,
 			embed(product.name),
 			k + 1,
 		);
@@ -138,37 +135,26 @@ export class NorthwindService {
 	}
 
 	/**
-  The flagship write — one open transaction: edge entities carrying
-  purchase-time state, stock decrements guarded by @Version, all-or-nothing
-  rollback. Everything runs against the tx-scoped INeode.
+  The flagship write — one managed transaction (inWriteTransaction:
+  rollback-and-rethrow on failure, the callback commits on success):
+  edge entities carrying purchase-time state, stock decrements guarded
+  by @Version, all-or-nothing. Everything runs against the tx-scoped
+  INeode.
   */
 	async placeOrder(input: PlaceOrderInput): Promise<Order> {
-		const tx = await this.neode.openWriteTransaction();
+		const orderID = await this.neode.inWriteTransaction(async (tx) => {
+			const customer = await this.findOrThrow(tx, Customer, input.customerID);
 
-		try {
-			const customer = await tx.find(Customer, input.customerID);
-			if (customer === undefined) {
-				throw new NeodeError(`Customer ${input.customerID} does not exist`);
-			}
+			// Employee + shipper are existence-checked here, then re-matched
+			// by the order-creation statement below
+			await this.findOrThrow(tx, Employee, input.employeeID);
 
-			const employee = await tx.find(Employee, input.employeeID);
-			if (employee === undefined) {
-				throw new NeodeError(`Employee ${input.employeeID} does not exist`);
-			}
-
-			const shipper = await tx.find(Shipper, input.shipperID);
-			if (shipper === undefined) {
-				throw new NeodeError(`Shipper ${input.shipperID} does not exist`);
-			}
+			await this.findOrThrow(tx, Shipper, input.shipperID);
 
 			// Resolve + stock-check + schema-validate every line before writing
 			const lineSchema = getModel(OrderLine);
 			for (const item of input.items) {
-				const product = await tx.find(Product, item.productID);
-
-				if (product === undefined) {
-					throw new NeodeError(`Product ${item.productID} does not exist`);
-				}
+				const product = await this.findOrThrow(tx, Product, item.productID);
 
 				if (product.unitsInStock < item.quantity) {
 					throw new OutOfStockError(
@@ -247,7 +233,9 @@ export class NorthwindService {
 					.relationship("CONTAINS", "out", "line", undefined, {
 						unitPrice: new RawExpression("p.unitPrice"),
 						quantity: new RawExpression("item.quantity"),
-						discount: new RawExpression("item.discount"),
+						// coalesce: an omitted discount must land as 0, not null —
+						// 1 - null zeroes the line's revenue in every projection
+						discount: new RawExpression("coalesce(item.discount, 0)"),
 					})
 					.to("p")
 					.setExpr(
@@ -261,24 +249,26 @@ export class NorthwindService {
 
 			builder.return("o.orderID AS orderID");
 
-			const { query, params } = builder.build();
+			await tx.write(builder, { lines: input.items });
 
-			await tx.writeCypher(query, { ...params, lines: input.items });
-
+			// The managed transaction rolls back and rethrows on failure;
+			// the commit itself is the callback's job (the library's
+			// inWriteTransaction contract — its integration tests commit
+			// explicitly inside the work)
 			await tx.commit();
 
-			// Re-read through the projection-aware path for the response DTO
-			const placed = await this.orders.find(orderRecord.orderID);
+			return orderRecord.orderID;
+		});
 
-			if (placed === undefined) {
-				throw new NeodeError("Order was placed but could not be read back");
-			}
+		// Re-read through the projection-aware path for the response DTO —
+		// outside the transaction, which has committed
+		const placed = await this.orders.find(orderID);
 
-			return placed;
-		} catch (error) {
-			await tx.rollback();
-			throw error;
+		if (placed === undefined) {
+			throw new NeodeError("Order was placed but could not be read back");
 		}
+
+		return placed;
 	}
 
 	/**
@@ -320,7 +310,7 @@ export class NorthwindService {
 	/**
 	Add a line to an existing order: edge entity validated (NTS-509),
 	purchase-time price from the product, stock checked + decremented —
-	one open transaction.
+	one managed transaction (inWriteTransaction).
 	*/
 	async addLine(
 		orderID: number,
@@ -328,18 +318,10 @@ export class NorthwindService {
 	): Promise<void> {
 		const quantity = input.quantity ?? 1;
 
-		const tx = await this.neode.openWriteTransaction();
+		await this.neode.inWriteTransaction(async (tx) => {
+			const order = await this.findOrThrow(tx, Order, orderID);
 
-		try {
-			const order = await tx.find(Order, orderID);
-			if (order === undefined) {
-				throw new NeodeError(`Order ${orderID} does not exist`);
-			}
-
-			const product = await tx.find(Product, input.productID);
-			if (product === undefined) {
-				throw new NeodeError(`Product ${input.productID} does not exist`);
-			}
+			const product = await this.findOrThrow(tx, Product, input.productID);
 
 			if (product.unitsInStock < quantity) {
 				throw new OutOfStockError(
@@ -361,10 +343,7 @@ export class NorthwindService {
 			);
 
 			await tx.commit();
-		} catch (error) {
-			await tx.rollback();
-			throw error;
-		}
+		});
 	}
 
 	async ship(order: Order) {
@@ -434,13 +413,13 @@ export class NorthwindService {
 			.to("p", "Product")
 			.return(
 				"o.shipCountry AS country",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 				"count(DISTINCT o) AS orders",
 			)
 			.orderBy("revenue", "DESC")
 			.limit(limit);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			country:
@@ -463,11 +442,11 @@ export class NorthwindService {
 			.return(
 				"substring(toString(o.orderDate), 0, 7) AS month",
 				"count(DISTINCT o) AS orders",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 			)
 			.orderBy("month", "ASC");
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			month: String(row.get("month")),
@@ -495,12 +474,12 @@ export class NorthwindService {
 				"c.customerID AS customerID",
 				"c.companyName AS company",
 				"count(DISTINCT o) AS orders",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 			)
 			.orderBy("revenue", "DESC")
 			.limit(limit);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			customerID: String(row.get("customerID")),
@@ -535,7 +514,7 @@ export class NorthwindService {
 			.orderBy("times", "DESC")
 			.limit(k);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			productID: Number(row.get("productID")),
@@ -560,11 +539,11 @@ export class NorthwindService {
 			.return(
 				"substring(toString(o.orderDate), 0, 7) AS month",
 				"count(DISTINCT o) AS orders",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 			)
 			.orderBy("month", "ASC");
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			month: String(row.get("month")),
@@ -581,15 +560,12 @@ export class NorthwindService {
 			.match("o", "Order")
 			.relationship("CONTAINS", "out", "line")
 			.to("p", "Product")
-			.with(
-				"p",
-				"sum(line.quantity * line.unitPrice * (1 - line.discount)) AS revenue",
-			)
+			.with("p", `sum(${LINE_REVENUE}) AS revenue`)
 			.return("p.name AS name", "p.unitsInStock AS stock", "revenue")
 			.orderBy("revenue", "DESC")
 			.limit(limit);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			name: String(row.get("name")),
@@ -715,8 +691,7 @@ export class NorthwindService {
 			.return("n", "r", "m")
 			.limit(50);
 
-		const { query, params } = builder.build();
-		const output = await this.neode.readCypher(query, params);
+		const output = await this.neode.read(builder);
 
 		const { jsonSafeRecord } = await import("neode");
 
@@ -787,7 +762,7 @@ export class NorthwindService {
 			"count(t) AS territories",
 		);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => {
 			const managerRaw = row.get("managerID");
@@ -811,10 +786,19 @@ export class NorthwindService {
 		});
 	}
 
-	private async run(builder: Builder) {
-		const { query, params } = builder.build();
+	/** tx.find + the not-found throw — one helper, one error wording. */
+	private async findOrThrow<T>(
+		tx: INeode,
+		model: new (...arguments_: never[]) => T,
+		id: string | number,
+	): Promise<T> {
+		const entity = await tx.find(model, id);
 
-		return this.neode.readCypher(query, params);
+		if (entity === undefined) {
+			throw new NeodeError(`${model.name} ${id} does not exist`);
+		}
+
+		return entity;
 	}
 
 	private async nextOrderID(tx: INeode): Promise<number> {
