@@ -1,10 +1,4 @@
-import {
-	Builder,
-	EntityRepository,
-	hydrate,
-	NeodeError,
-	Repository,
-} from "neode";
+import { Builder, EntityRepository, NeodeError, Repository } from "neode";
 import { Order } from "../models/order.js";
 import { durationBetween } from "./order-types.js";
 
@@ -38,8 +32,9 @@ class OrderRepository extends Repository<Order> {
 
 	/**
   One customer's order history, newest first — the Builder seam: a raw
-  relationship traversal the property-filter methods cannot express, run
-  through the scope's read() and hydrated back to entities.
+  relationship traversal the property-filter methods cannot express, read
+  and hydrated to entities in one call through the scope's hydrate option
+  (NTS-559).
   */
 	async historyForCustomer(customerID: string, limit = 20): Promise<Order[]> {
 		const builder = new Builder();
@@ -53,9 +48,11 @@ class OrderRepository extends Repository<Order> {
 			.orderBy("o.orderDate", "DESC")
 			.limit(limit);
 
-		const output = await this.neode.read(builder, undefined, this.database);
-
-		return hydrate(Order, output, "o");
+		return this.neode.read(builder, {
+			hydrate: Order,
+			alias: "o",
+			database: this.database,
+		});
 	}
 }
 
