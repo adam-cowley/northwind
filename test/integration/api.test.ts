@@ -113,6 +113,44 @@ describe("Northwind Ops API (e2e via app.request)", () => {
 		expect(Number(after.records[0]?.get("stock"))).toBe(stockBefore - 2);
 	});
 
+	it("coalesces an omitted discount to 0 on the placed lines (NTS-557)", async () => {
+		const response = await app.request("/api/orders", {
+			method: "POST",
+			headers: { "content-type": "application/json", cookie },
+			body: JSON.stringify({
+				customerID: "ANTON",
+				employeeID: 2,
+				shipperID: 1,
+				items: [{ productID: 11, quantity: 2 }],
+			}),
+		});
+
+		expect(response.status).toBe(201);
+
+		const placed = (await response.json()) as { orderID: number };
+
+		// The edge stores 0, not null — a null discount would zero the
+		// line's revenue in every 1 - discount projection
+		const edge = await neode.readCypher(
+			"MATCH (:Order { orderID: $id })-[line:CONTAINS]->(:Product { productID: 11 }) RETURN line.discount AS discount",
+			{ id: placed.orderID },
+		);
+
+		expect(edge.records[0]?.get("discount")).toBe(0);
+
+		// …so the line's revenue shows up on the growth board's current month
+		const growth = await app.request("/api/insight/growth?limit=10", {
+			headers: { cookie },
+		});
+		const body = (await growth.json()) as {
+			risers: { productID: number; revenue: number }[];
+		};
+
+		const riser = body.risers.find((row) => row.productID === 11);
+
+		expect(riser?.revenue).toBeGreaterThan(0);
+	});
+
 	it("409s an out-of-stock order", async () => {
 		const response = await app.request("/api/orders", {
 			method: "POST",
@@ -248,9 +286,8 @@ describe("Northwind Ops API (e2e via app.request)", () => {
 			fallers: unknown[];
 		};
 
-		// Mount coverage only — the growth math has its own suite. (This
-		// backend's latest order carries a null discount, so movements can
-		// legitimately be empty here.)
+		// Mount coverage only — the growth math has its own suite
+		// (including the omitted-discount coalesce, NTS-557).
 		expect(growth.status).toBe(200);
 		expect(growthBody.month).toMatch(/^\d{4}-\d{2}$/);
 		expect(Array.isArray(growthBody.risers)).toBe(true);

@@ -232,7 +232,9 @@ export class NorthwindService {
 					.relationship("CONTAINS", "out", "line", undefined, {
 						unitPrice: new RawExpression("p.unitPrice"),
 						quantity: new RawExpression("item.quantity"),
-						discount: new RawExpression("item.discount"),
+						// coalesce: an omitted discount must land as 0, not null —
+						// 1 - null zeroes the line's revenue in every projection
+						discount: new RawExpression("coalesce(item.discount, 0)"),
 					})
 					.to("p")
 					.setExpr(
