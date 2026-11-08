@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { withErrorMap } from "../api/errors.js";
+import { LINE_REVENUE } from "../shared.js";
 import type Neode from "neode";
 import { Builder } from "neode";
 
@@ -67,7 +68,7 @@ export function createRegionRollupRoutes(neode: Neode): Hono {
 			"territories",
 			"employees",
 			"o2",
-			"line.unitPrice * line.quantity * (1 - line.discount) AS lineRevenue",
+			`${LINE_REVENUE} AS lineRevenue`,
 		);
 		builder.with(
 			"r",

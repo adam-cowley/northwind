@@ -8,30 +8,19 @@ The generic entity view (the "ID in the list" pattern): any registered
 type, its properties and its 1-hop typed neighborhood, with neighbor
 types resolved so the UI can link every id.
 
-Type → primary key map: the canonical type names used in URLs.
+Type → primary key + display keys (NTS-556): the canonical type names
+used in URLs. One map so the pk and the display keys cannot drift.
 */
-const TYPE_PK: Record<string, string> = {
-	Product: "productID",
-	Customer: "customerID",
-	Order: "orderID",
-	Supplier: "supplierID",
-	Employee: "employeeID",
-	Shipper: "shipperID",
-	Region: "regionID",
-	Territory: "territoryID",
-	Category: "categoryID",
-};
-
-const TYPE_LABEL: Record<string, string[]> = {
-	Product: ["name"],
-	Customer: ["companyName"],
-	Supplier: ["companyName"],
-	Shipper: ["companyName"],
-	Employee: ["firstName", "lastName"],
-	Category: ["name"],
-	Region: ["name"],
-	Territory: ["name"],
-	Order: ["orderID"],
+const TYPES: Record<string, { pk: string; label: string[] }> = {
+	Product: { pk: "productID", label: ["name"] },
+	Customer: { pk: "customerID", label: ["companyName"] },
+	Order: { pk: "orderID", label: ["orderID"] },
+	Supplier: { pk: "supplierID", label: ["companyName"] },
+	Employee: { pk: "employeeID", label: ["firstName", "lastName"] },
+	Shipper: { pk: "shipperID", label: ["companyName"] },
+	Region: { pk: "regionID", label: ["name"] },
+	Territory: { pk: "territoryID", label: ["name"] },
+	Category: { pk: "categoryID", label: ["name"] },
 };
 
 /** The display string for a node of the given type. */
@@ -43,7 +32,7 @@ function displayFor(
 		return "?";
 	}
 
-	const keys = TYPE_LABEL[type] ?? ["name"];
+	const keys = TYPES[type]?.label ?? ["name"];
 
 	if (type === "Order") {
 		return `#${String(properties["orderID"])}`;
@@ -63,7 +52,7 @@ function typeForLabels(labels: unknown): string | undefined {
 		return undefined;
 	}
 
-	for (const candidate of Object.keys(TYPE_PK)) {
+	for (const candidate of Object.keys(TYPES)) {
 		if (labels.includes(candidate)) {
 			return candidate;
 		}
@@ -79,7 +68,7 @@ export function createEntityDetailRoutes(neode: Neode): Hono {
 		const type = context.req.param("type");
 		const rawId = context.req.param("id");
 
-		const pk = TYPE_PK[type];
+		const pk = TYPES[type]?.pk;
 
 		if (pk === undefined) {
 			throw new NeodeError(`Unknown entity type "${type}"`);
@@ -173,7 +162,8 @@ export function createEntityDetailRoutes(neode: Neode): Hono {
 					relType: String(rel.type ?? ""),
 					direction,
 					neighborType,
-					neighborId: neighbor.properties?.[TYPE_PK[neighborType ?? ""] ?? ""],
+					neighborId:
+						neighbor.properties?.[TYPES[neighborType ?? ""]?.pk ?? ""],
 					neighborDisplay: displayFor(neighborType, neighbor.properties ?? {}),
 				});
 			}

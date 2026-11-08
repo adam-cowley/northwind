@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { withErrorMap } from "../api/errors.js";
+import { LINE_REVENUE } from "../shared.js";
 import type Neode from "neode";
 import { Builder, NeodeError } from "neode";
 
@@ -26,7 +27,7 @@ export function createCountryRoutes(neode: Neode): Hono {
 			.return(
 				"o.shipCountry AS country",
 				"count(DISTINCT o) AS orders",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 				"count(DISTINCT p) AS products",
 			)
 			.orderBy("revenue", "DESC");
@@ -66,7 +67,7 @@ export function createCountryRoutes(neode: Neode): Hono {
 				"p.productID AS productID",
 				"p.name AS name",
 				"count(DISTINCT o) AS orders",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 			)
 			.orderBy("revenue", "DESC")
 			.limit(25);

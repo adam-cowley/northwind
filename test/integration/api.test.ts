@@ -228,6 +228,44 @@ describe("Northwind Ops API (e2e via app.request)", () => {
 		expect(body[0]?.revenue).toBeGreaterThan(0);
 	});
 
+	it("falls back to the default page for a garbage ?limit (NTS-556 intQuery)", async () => {
+		const response = await app.request("/api/catalog?limit=abc", {
+			headers: { cookie },
+		});
+		const body = (await response.json()) as { items: unknown[] };
+
+		expect(response.status).toBe(200);
+		expect(body.items).toHaveLength(12);
+	});
+
+	it("serves a mounted insight route and the entity route (NTS-556 registry)", async () => {
+		const growth = await app.request("/api/insight/growth?limit=3", {
+			headers: { cookie },
+		});
+		const growthBody = (await growth.json()) as {
+			month: string | null;
+			risers: unknown[];
+			fallers: unknown[];
+		};
+
+		// Mount coverage only — the growth math has its own suite. (This
+		// backend's latest order carries a null discount, so movements can
+		// legitimately be empty here.)
+		expect(growth.status).toBe(200);
+		expect(growthBody.month).toMatch(/^\d{4}-\d{2}$/);
+		expect(Array.isArray(growthBody.risers)).toBe(true);
+		expect(Array.isArray(growthBody.fallers)).toBe(true);
+
+		const entity = await app.request("/api/entity/Product/1", {
+			headers: { cookie },
+		});
+		const entityBody = (await entity.json()) as { type: string; id: number };
+
+		expect(entity.status).toBe(200);
+		expect(entityBody.type).toBe("Product");
+		expect(entityBody.id).toBe(1);
+	});
+
 	it("closes cleanly", async () => {
 		await backend.close();
 	});

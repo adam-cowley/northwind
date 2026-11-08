@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { withErrorMap } from "../api/errors.js";
+import { intQuery } from "../api/queries.js";
+import { LINE_REVENUE } from "../shared.js";
 import type Neode from "neode";
 import { Builder } from "neode";
 
@@ -19,10 +21,7 @@ export function createGrowthBoardRoutes(neode: Neode): Hono {
 	const routes = withErrorMap(new Hono());
 
 	routes.get("/growth", async (context) => {
-		const limitParam = Number(context.req.query("limit") ?? 5);
-		const limit = Number.isFinite(limitParam)
-			? Math.max(0, Math.trunc(limitParam))
-			: 5;
+		const limit = intQuery(context, "limit", 5);
 
 		const builder = new Builder();
 
@@ -34,7 +33,7 @@ export function createGrowthBoardRoutes(neode: Neode): Hono {
 				"p.productID AS productID",
 				"p.name AS name",
 				"substring(toString(o.orderDate), 0, 7) AS month",
-				"round(sum(line.quantity * line.unitPrice * (1 - line.discount))) AS revenue",
+				`round(sum(${LINE_REVENUE})) AS revenue`,
 			);
 
 		const { query, params } = builder.build();
