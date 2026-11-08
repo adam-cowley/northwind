@@ -136,7 +136,7 @@ export class NorthwindService {
 
 	/**
   The flagship write — one managed transaction (inWriteTransaction:
-  rollback-and-rethrow on failure, the callback commits on success):
+  rollback-and-rethrow on failure, commit-on-success — NTS-561):
   edge entities carrying purchase-time state, stock decrements guarded
   by @Version, all-or-nothing. Everything runs against the tx-scoped
   INeode.
@@ -251,11 +251,9 @@ export class NorthwindService {
 
 			await tx.write(builder, { lines: input.items });
 
-			// The managed transaction rolls back and rethrows on failure;
-			// the commit itself is the callback's job (the library's
-			// inWriteTransaction contract — its integration tests commit
-			// explicitly inside the work)
-			await tx.commit();
+			// NTS-561: the managed transaction commits on success and rolls
+			// back on throw — no explicit commit here (an explicit one is
+			// still legal; a second commit is a no-op)
 
 			return orderRecord.orderID;
 		});
@@ -341,8 +339,6 @@ export class NorthwindService {
 				"MATCH (p:Product { productID: $id }) SET p.unitsInStock = coalesce(p.unitsInStock, 0) - $qty, p.version = coalesce(p.version, 0) + 1",
 				{ id: product.productID, qty: quantity },
 			);
-
-			await tx.commit();
 		});
 	}
 
@@ -374,13 +370,28 @@ export class NorthwindService {
 	}
 
 	async customerProfile(customerID: string) {
-		const customer = await this.customers.profile(customerID);
+		// NTS-560 — the one-statement read: the customer and their newest
+		// 25 orders (per-relation order/limit on the load spec) in one query
+		const customer = await this.neode.find(Customer, customerID, {
+			with: { orders: (r) => r.orderBy("orderDate", "DESC").limit(25) },
+		});
 
-		const history = await this.orders.historyForCustomer(customerID, 25);
+		if (customer === undefined) {
+			throw new NeodeError(`Customer ${customerID} does not exist`);
+		}
 
 		// Serialise through toJson: hydrated temporal objects (the client's
 		// decoded classes) would crash string-handling clients
-		return { customer: toJson(customer), history: history.map(toJson) };
+		const payload = toJson(customer);
+
+		// NTS-560: the load spec materializes `orders` as an own property,
+		// which toJson serialises eagerly — strip it, the wire shape keeps
+		// the history array separate
+		const { orders: _orders, ...customerPayload } = payload;
+
+		const history = (customer.orders ?? []) as Order[];
+
+		return { customer: customerPayload, history: history.map(toJson) };
 	}
 
 	/** Suppliers within `radiusKm` of a point — the withinDistance() demo. */

@@ -1,11 +1,14 @@
 import {
 	CreatedAt,
+	Direction,
 	NodeEntity,
+	OneToMany,
 	Primary,
 	Property,
 	RelationshipCount,
 	UpdatedAt,
 } from "neode";
+import { Order } from "./order.js";
 
 @NodeEntity()
 class Customer {
@@ -54,6 +57,14 @@ class Customer {
 	/** NTS-136 — lifetime order count, one COUNT subquery in the read. */
 	@RelationshipCount({ type: "PLACED_BY", direction: "in" })
 	orderCount!: number;
+
+	/**
+	Showcased with the NTS-560 load spec; declared non-eager on purpose —
+	customer list reads must not fetch every order. The lazy `() => Order`
+	ref keeps the Customer ↔ Order import cycle safe (order.ts imports this).
+	*/
+	@OneToMany(() => Order, "PLACED_BY", Direction.INCOMING)
+	orders?: unknown;
 }
 
 export { Customer };

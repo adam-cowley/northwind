@@ -1,11 +1,13 @@
-import { Builder, EntityRepository, NeodeError, Repository } from "neode";
+import { EntityRepository, NeodeError, Repository } from "neode";
 import { Order } from "../models/order.js";
 import { durationBetween } from "./order-types.js";
 
 /**
 The order desk's read + simple-write surface. INeode-scope only (tx-safe:
 works through custom repositories inside an open transaction). The
-transactional orchestration lives in NorthwindService (services/).
+transactional orchestration lives in NorthwindService (services/); the
+order-history read lives there too now — the NTS-560 load spec on
+Customer.orders (was: the Builder seam here).
 */
 @EntityRepository(Order)
 class OrderRepository extends Repository<Order> {
@@ -28,33 +30,6 @@ class OrderRepository extends Repository<Order> {
 	/** Cancel an order — DETACH DELETE drops the order and its CONTAINS lines. */
 	async cancel(orderID: number): Promise<void> {
 		await this.delete(orderID);
-	}
-
-	/**
-  One customer's order history, newest first — the Builder seam: a raw
-  relationship traversal the property-filter methods cannot express, read
-  and hydrated to entities in one call through the scope's hydrate option
-  (NTS-559).
-  */
-	async historyForCustomer(customerID: string, limit = 20): Promise<Order[]> {
-		const builder = new Builder();
-
-		builder
-			.match("o", "Order")
-			.relationship("PLACED_BY", "out", "r")
-			.to("c", "Customer")
-			.where("c.customerID", customerID)
-			.return("o")
-			.orderBy("o.orderDate", "DESC")
-			.limit(limit);
-
-		return this.neode.read(builder, {
-			hydrate: Order,
-			alias: "o",
-			// exactOptionalPropertyTypes: an explicit undefined would reject the
-			// hydrate overload and fall through to the raw one
-			...(this.database === undefined ? {} : { database: this.database }),
-		});
 	}
 }
 

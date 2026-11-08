@@ -168,11 +168,11 @@ describe("order lifecycle (the flagship write path)", () => {
 		expect(firstOfSecond <= lastDate).toBe(true);
 	});
 
-	it("streams one customer’s history via the Builder", async () => {
-		const history = await service.orders.historyForCustomer("ANTON", 5);
+	it("streams one customer’s history through the NTS-560 load spec", async () => {
+		const profile = await service.customerProfile("ANTON");
 
-		expect(history.length).toBeGreaterThan(0);
-		expect(history.length).toBeLessThanOrEqual(5);
+		expect(profile.history.length).toBeGreaterThan(0);
+		expect(profile.history.length).toBeLessThanOrEqual(25);
 	});
 
 	it("closes cleanly", async () => {

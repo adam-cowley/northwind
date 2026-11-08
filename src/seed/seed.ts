@@ -111,8 +111,6 @@ export async function seed(
 				await txProducts.relate(Product, productEntity, category, "partOf");
 			}
 		}
-
-		await txProducts.commit();
 	});
 
 	// 4. Territory/Employee relationships (map-model targets)
@@ -171,8 +169,6 @@ export async function seed(
 				});
 			}
 		}
-
-		await txOrders.commit();
 	});
 
 	// 6. The Cypher-script step: :Bestseller labels
@@ -240,8 +236,6 @@ async function relateReferenceEdges(
 				await tx.relate(Employee, employee, manager, "reportsToRel");
 			}
 		}
-
-		await tx.commit();
 	});
 }
 
@@ -377,8 +371,6 @@ export async function seedSyntheticOrders(
 			builder.return("count(o) AS created");
 
 			await tx.write(builder, { rows: chunk });
-
-			await tx.commit();
 		});
 	}
 }

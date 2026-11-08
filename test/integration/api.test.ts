@@ -85,6 +85,33 @@ describe("Northwind Ops API (e2e via app.request)", () => {
 		expect(response.status).toBe(404);
 	});
 
+	it("serves the customer profile: customer without orders + separate history (NTS-560)", async () => {
+		const response = await app.request("/api/customers/ANTON", {
+			headers: { cookie },
+		});
+		const body = (await response.json()) as {
+			customer: Record<string, unknown> & { customerID: string };
+			history: Record<string, unknown>[];
+		};
+
+		expect(response.status).toBe(200);
+		expect(body.customer.customerID).toBe("ANTON");
+		// The load spec's orders do not leak into the customer payload —
+		// the wire shape keeps { customer, history }
+		expect(Object.hasOwn(body.customer, "orders")).toBe(false);
+		expect(Array.isArray(body.history)).toBe(true);
+		expect(body.history.length).toBeGreaterThan(0);
+		expect(body.history.length).toBeLessThanOrEqual(25);
+	});
+
+	it("400s a missing customer (the not-found NeodeError maps through)", async () => {
+		const response = await app.request("/api/customers/ZZZZZ", {
+			headers: { cookie },
+		});
+
+		expect(response.status).toBe(400);
+	});
+
 	it("places an order over the API (201) and decrements stock", async () => {
 		const before = await neode.readCypher(
 			"MATCH (p:Product { productID: 4 }) RETURN p.unitsInStock AS stock",
