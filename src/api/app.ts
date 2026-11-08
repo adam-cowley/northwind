@@ -311,13 +311,24 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		return context.json({
 			order: toJson(order),
 			lines: output.records.map((row) => {
-				const safe = jsonSafeRecord(row);
-				const rawRel = row.get("line") as { elementId?: string } | undefined;
+				const rawRel = row.get("line") as
+					| { elementId?: string; properties?: Record<string, unknown> }
+					| undefined;
+				const rawProduct = row.get("p") as
+					| { properties?: Record<string, unknown> }
+					| undefined;
 
+				const relProps = rawRel?.properties ?? {};
+				const prodProps = rawProduct?.properties ?? {};
+
+				// Flat shapes: the view should not know the wire format
 				return {
 					elementId: rawRel?.elementId,
-					product: safe.get("p"),
-					line: safe.get("line"),
+					productID: Number(prodProps["productID"]),
+					name: String(prodProps["name"] ?? ""),
+					unitPrice: Number(prodProps["unitPrice"] ?? 0),
+					quantity: Number(relProps["quantity"] ?? 0),
+					discount: Number(relProps["discount"] ?? 0),
 				};
 			}),
 		});
@@ -334,6 +345,24 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		const placed = await service.placeOrder(body);
 
 		return context.json(toJson(placed), 201);
+	});
+
+	app.get("/api/orders/:id/upsell", async (context) => {
+		return context.json(
+			await service.upsellForOrder(Number(context.req.param("id"))),
+		);
+	});
+
+	app.post("/api/orders/:id/lines", async (context) => {
+		const body = await context.req.json<{
+			productID: number;
+			quantity?: number;
+			discount?: number;
+		}>();
+
+		await service.addLine(Number(context.req.param("id")), body);
+
+		return context.json({ added: true });
 	});
 
 	app.post("/api/orders/:id/ship", async (context) => {

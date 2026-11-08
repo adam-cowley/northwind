@@ -4,3 +4,4 @@ dist-ui/
 .env
 .eslintcache
 *.log
+.DS_Store

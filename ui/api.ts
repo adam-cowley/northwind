@@ -151,8 +151,11 @@ export const api = {
 		get<{
 			lines: {
 				elementId?: string;
-				product: Record<string, unknown>;
-				line: Record<string, unknown>;
+				productID: number;
+				name: string;
+				unitPrice: number;
+				quantity: number;
+				discount: number;
 			}[];
 		}>(`/api/orders/${id}`),
 	updateLine: (
@@ -218,6 +221,19 @@ export const api = {
 		get<{ productID: number; name: string; times: number }[]>(
 			`/api/products/${id}/also-bought`,
 		),
+	upsell: (orderId: number) =>
+		get<{
+			opportunities: {
+				productID: number;
+				name: string;
+				unitPrice: number;
+				times: number;
+			}[];
+		}>(`/api/orders/${orderId}/upsell`),
+	addLine: (
+		orderId: number,
+		line: { productID: number; quantity?: number; discount?: number },
+	) => send<{ added: boolean }>(`/api/orders/${orderId}/lines`, "POST", line),
 	twins: (customerId: string) =>
 		get<{
 			customer: string;

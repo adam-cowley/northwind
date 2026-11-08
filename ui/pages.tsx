@@ -632,11 +632,17 @@ export function Orders() {
 		order: OrderRow;
 		lines: {
 			elementId?: string;
-			product: Record<string, unknown>;
-			line: Record<string, unknown>;
+			productID: number;
+			name: string;
+			unitPrice: number;
+			quantity: number;
+			discount: number;
 		}[];
 	}>();
 	const [lineError, setLineError] = useState("");
+	const [upsell, setUpsell] = useState<
+		{ productID: number; name: string; unitPrice: number; times: number }[]
+	>([]);
 
 	const load = (): void => {
 		void api
@@ -646,6 +652,27 @@ export function Orders() {
 	};
 
 	useEffect(load, []);
+
+	const upsellFetch = (id: number): void => {
+		void api
+			.upsell(id)
+			.then((result) => {
+				setUpsell(result.opportunities);
+				setLineError("");
+			})
+			.catch(() => setUpsell([]));
+	};
+
+	const addLine = (productID: number): void => {
+		void api
+			.addLine(detail?.order.orderID ?? 0, { productID })
+			.then(() => {
+				if (detail !== undefined) {
+					openDetail(detail.order.orderID);
+				}
+			})
+			.catch((problem: Error) => setLineError(problem.message));
+	};
 
 	const openDetail = (id: number): void => {
 		void api
@@ -659,30 +686,22 @@ export function Orders() {
 				}),
 			)
 			.catch((problem: Error) => setLineError(problem.message));
+
+		upsellFetch(id);
 	};
 
 	const totalOf = (): number =>
-		(detail?.lines ?? []).reduce((sum, entry) => {
-			const line = entry.line as {
-				quantity?: number;
-				unitPrice?: number;
-				discount?: number;
-			};
-
-			return (
-				sum +
-				(line.quantity ?? 0) *
-					(line.unitPrice ?? 0) *
-					(1 - (line.discount ?? 0))
-			);
-		}, 0);
+		(detail?.lines ?? []).reduce(
+			(sum, entry) =>
+				sum + entry.quantity * entry.unitPrice * (1 - entry.discount),
+			0,
+		);
 
 	const changeLine = (elementId: string, delta: number): void => {
 		const current = detail?.lines.find(
 			(entry) => entry.elementId === elementId,
 		);
-		const quantity =
-			Number((current?.line as { quantity?: number }).quantity ?? 1) + delta;
+		const quantity = (current?.quantity ?? 1) + delta;
 
 		void api
 			.updateLine(elementId, { quantity })
@@ -714,20 +733,10 @@ export function Orders() {
 						</thead>
 						<tbody>
 							{detail.lines.map((entry, index) => {
-								const line = entry.line as {
-									quantity?: number;
-									unitPrice?: number;
-									discount?: number;
-								};
-								const product = entry.product as {
-									name?: string;
-									productID?: number;
-								};
-
 								return (
 									<tr key={entry.elementId ?? index}>
-										<td>{product.name ?? product.productID}</td>
-										<td>{line.unitPrice}</td>
+										<td>{entry.name || entry.productID}</td>
+										<td>{entry.unitPrice}</td>
 										<td>
 											<button
 												onClick={() =>
@@ -737,7 +746,7 @@ export function Orders() {
 											>
 												−
 											</button>{" "}
-											{line.quantity}{" "}
+											{entry.quantity}{" "}
 											<button
 												onClick={() =>
 													entry.elementId !== undefined &&
@@ -747,12 +756,12 @@ export function Orders() {
 												+
 											</button>
 										</td>
-										<td>{line.discount ?? 0}</td>
+										<td>{entry.discount}</td>
 										<td>
 											{(
-												(line.quantity ?? 0) *
-												(line.unitPrice ?? 0) *
-												(1 - (line.discount ?? 0))
+												entry.quantity *
+												entry.unitPrice *
+												(1 - entry.discount)
 											).toFixed(2)}
 										</td>
 									</tr>
@@ -760,6 +769,41 @@ export function Orders() {
 							})}
 						</tbody>
 					</table>
+
+					<div className="panel">
+						<h2>Upsell opportunities — often added to orders like this</h2>
+						{upsell.length === 0 && (
+							<span className="muted">nothing to suggest</span>
+						)}
+						{upsell.map((suggestion) => (
+							<div
+								key={suggestion.productID}
+								style={{
+									display: "flex",
+									justifyContent: "space-between",
+									marginBottom: 6,
+								}}
+							>
+								<span>
+									<IdLink
+										type="Product"
+										id={suggestion.productID}
+										label={suggestion.name}
+									/>{" "}
+									<span className="muted">
+										@ {suggestion.unitPrice} · co-ordered {suggestion.times}×
+									</span>
+								</span>
+								<button
+									onClick={() => {
+										addLine(suggestion.productID);
+									}}
+								>
+									add 1 ({suggestion.unitPrice})
+								</button>
+							</div>
+						))}
+					</div>
 					<button
 						onClick={() =>
 							void api.ship(detail.order.orderID).then(() => {

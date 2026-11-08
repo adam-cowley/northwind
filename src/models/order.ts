@@ -6,11 +6,13 @@ import {
 	OneToMany,
 	Primary,
 	Property,
+	RelatedMany,
 	RelatedOne,
 } from "neode";
 import { Customer } from "./customer.js";
 import { Employee } from "./employee.js";
 import { OrderLine } from "./order-line.js";
+import { Product } from "./product.js";
 import { Shipper } from "./shipper.js";
 
 @NodeEntity()
@@ -66,13 +68,11 @@ class Order {
 	/** NTS-135 — customer DTO inline on every order row. */
 	@RelatedOne({
 		type: "PLACED_BY",
-		direction: "out",
+		direction: Direction.OUTGOING,
 		target: () => Customer,
 		fields: ["customerID", "companyName", "country"],
 	})
-	customer!:
-		| { customerID: string; companyName: string; country: string }
-		| undefined;
+	customer?: Pick<Customer, "customerID" | "companyName" | "country">;
 
 	// ---- Graph shape ----
 
@@ -88,6 +88,23 @@ class Order {
 	/** The first-class edge: CONTAINS carries unitPrice/quantity/discount as an OrderLine. */
 	@OneToMany(() => OrderLine, "CONTAINS", Direction.OUTGOING)
 	lines?: unknown;
+
+	/**
+	NTS-547 — products co-ordered with THIS order's products (other orders
+	containing them), not already in the order itself: the two-hop co-purchase
+	read, projected inline with the order.
+	*/
+	@RelatedMany({
+		path: [
+			{ type: "CONTAINS", direction: Direction.OUTGOING },
+			{ type: "CONTAINS", direction: Direction.INCOMING },
+			{ type: "CONTAINS", direction: Direction.OUTGOING },
+		],
+		target: () => Product,
+		fields: ["productID", "name", "unitPrice"],
+		where: "NOT (this)-[:CONTAINS]->(node)",
+	})
+	coPurchased?: Pick<Product, "productID" | "name" | "unitPrice">[];
 }
 
 export { Order };

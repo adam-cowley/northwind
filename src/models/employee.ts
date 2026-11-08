@@ -63,7 +63,7 @@ class Employee {
 
 	/** NTS-135 — full-entity RelatedMany (no fields): direct reports load eagerly as entities. */
 	@RelatedMany({ type: "REPORTS_TO", direction: "in", target: () => Employee })
-	directReports!: unknown[];
+	directReports!: Employee[];
 
 	// ---- Graph shape ----
 

@@ -86,7 +86,7 @@ class Product {
 		target: () => Supplier,
 		fields: ["companyName", "country"],
 	})
-	supplier!: { companyName: string; country: string } | undefined;
+	supplier?: Pick<Supplier, "companyName" | "country">;
 
 	/** NTS-135 — category name projected inline (single field → scalar). */
 	@RelatedOne({

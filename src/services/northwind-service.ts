@@ -1,5 +1,6 @@
 import Neode, {
 	Builder,
+	Direction,
 	getModel,
 	applySchemaDrift,
 	formatSchemaDrift,
@@ -274,6 +275,92 @@ export class NorthwindService {
 			}
 
 			return placed;
+		} catch (error) {
+			await tx.rollback();
+			throw error;
+		}
+	}
+
+	/**
+	Upsell opportunities (NTS-546): products co-ordered with THIS order's
+	products but not already in it — the co-purchase graph, ranked.
+	NTS-547: expressed with the aggregate traversal API.
+	*/
+	async upsellForOrder(
+		orderID: number,
+		k = 5,
+	): Promise<
+		{ productID: number; name: string; unitPrice: number; times: number }[]
+	> {
+		const rows = await this.neode
+			.traverse(Order)
+			.where({ orderID })
+			.hop("CONTAINS", Direction.OUTGOING, Product) //  t1: this order's products
+			.hop("CONTAINS", Direction.INCOMING, Order) //    t2: other orders…
+			.hop("CONTAINS", Direction.OUTGOING, Product) // t3: …and what they contain
+			.exclude("t0", "CONTAINS", "t3") // not already in THIS order
+			.groupBy("t3")
+			.countDistinct("t2", "times")
+			.orderBy("times", "DESC")
+			.limit(k)
+			.runAggregates();
+
+		return rows.map((row) => {
+			const reco = row["t3"] as Product;
+
+			return {
+				productID: reco.productID,
+				name: reco.name,
+				unitPrice: reco.unitPrice,
+				times: Number(row["times"]),
+			};
+		});
+	}
+
+	/**
+	Add a line to an existing order: edge entity validated (NTS-509),
+	purchase-time price from the product, stock checked + decremented —
+	one open transaction.
+	*/
+	async addLine(
+		orderID: number,
+		input: { productID: number; quantity?: number; discount?: number },
+	): Promise<void> {
+		const quantity = input.quantity ?? 1;
+
+		const tx = await this.neode.openWriteTransaction();
+
+		try {
+			const order = await tx.find(Order, orderID);
+			if (order === undefined) {
+				throw new NeodeError(`Order ${orderID} does not exist`);
+			}
+
+			const product = await tx.find(Product, input.productID);
+			if (product === undefined) {
+				throw new NeodeError(`Product ${input.productID} does not exist`);
+			}
+
+			if (product.unitsInStock < quantity) {
+				throw new OutOfStockError(
+					product.productID,
+					quantity,
+					product.unitsInStock,
+				);
+			}
+
+			await tx.relate(Order, order, product, "lines", {
+				unitPrice: product.unitPrice,
+				quantity,
+				discount: input.discount ?? 0,
+			});
+
+			await tx.writeCypher(
+				"MATCH (p:Product { productID: $id }) SET p.unitsInStock = coalesce(p.unitsInStock, 0) - $qty, p.version = coalesce(p.version, 0) + 1",
+				{ id: product.productID, qty: quantity },
+			);
+
+			await tx.commit();
 		} catch (error) {
 			await tx.rollback();
 			throw error;
