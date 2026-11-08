@@ -1,0 +1,42 @@
+{
+	"name": "northwind",
+	"private": true,
+	"version": "1.0.0",
+	"type": "module",
+	"description": "Northwind Ops — flagship demo for the neode OGM: API + UI + tests over the classic Northwind graph",
+	"scripts": {
+		"build": "esbuild src/server.ts src/seed/cli.ts --bundle --format=esm --outdir=dist --platform=node --target=es2022 --sourcemap --external:neode && cp -R src/seed/data dist/seed/data && cp -R src/seed/data dist/data && vite build",
+		"start": "node --env-file-if-exists=.env dist/server.js",
+		"seed": "node --env-file-if-exists=.env dist/seed/cli.js",
+		"dev:server": "pnpm build:server && node --env-file-if-exists=.env --watch dist/server.js",
+		"build:server": "esbuild src/server.ts src/seed/cli.ts --bundle --format=esm --outdir=dist --platform=node --target=es2022 --sourcemap --external:neode && cp -R src/seed/data dist/seed/data && cp -R src/seed/data dist/data",
+		"dev:ui": "vite",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.ui.json",
+		"test": "vitest run",
+		"test:unit": "vitest run --project unit",
+		"test:integration": "vitest run --project integration",
+		"lint": "biome format .",
+		"lint:fix": "biome format --write .",
+		"dev": "concurrently -k -n server,ui 'pnpm build:server >/dev/null && esbuild src/server.ts --bundle --format=esm --outfile=dist/server.js --platform=node --target=es2022 --sourcemap --external:neode --watch' 'node --env-file-if-exists=.env --watch dist/server.js' 'vite'"
+	},
+	"dependencies": {
+		"@hono/node-server": "^1.14.0",
+		"hono": "^4.7.0",
+		"neode": "workspace:*",
+		"recharts": "^3.10.1"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.6.6",
+		"@types/react": "^19.1.0",
+		"@types/react-dom": "^19.1.0",
+		"@vitejs/plugin-react": "^4.5.0",
+		"concurrently": "^10.0.7",
+		"esbuild": "^0.28.2",
+		"react": "^19.1.0",
+		"react-dom": "^19.1.0",
+		"tsdown": "^0.23.7",
+		"typescript": "^5.9.3",
+		"vite": "^6.3.5",
+		"vitest": "^3.2.7"
+	}
+}
