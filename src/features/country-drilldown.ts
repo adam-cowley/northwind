@@ -32,8 +32,7 @@ export function createCountryRoutes(neode: Neode): Hono {
 			)
 			.orderBy("revenue", "DESC");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		const countries = output.records
 			.map((row) => ({
@@ -72,8 +71,7 @@ export function createCountryRoutes(neode: Neode): Hono {
 			.orderBy("revenue", "DESC")
 			.limit(25);
 
-		const { query, params } = builder.build();
-		const productMix = await neode.readCypher(query, params);
+		const productMix = await neode.read(builder);
 
 		return context.json({
 			country,

@@ -88,8 +88,7 @@ async function runCheck(neode: Neode, check: QualityCheck) {
 		`collect(${check.example}) AS examples`,
 	);
 
-	const { query, params } = builder.build();
-	const output = await neode.readCypher(query, params);
+	const output = await neode.read(builder);
 	const row = output.records[0];
 
 	return {

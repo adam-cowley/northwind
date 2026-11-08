@@ -88,8 +88,7 @@ export function createRegionRollupRoutes(neode: Neode): Hono {
 		);
 		builder.orderBy("revenue", "DESC");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		const regions = output.records.map((row) => ({
 			regionID: Number(row.get("regionID")),

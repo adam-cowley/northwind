@@ -36,8 +36,7 @@ export function createGrowthBoardRoutes(neode: Neode): Hono {
 				`round(sum(${LINE_REVENUE})) AS revenue`,
 			);
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		// Fold the rows into productID -> { name, month -> revenue }
 		const series = new Map<

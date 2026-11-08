@@ -39,7 +39,7 @@ class OrderRepository extends Repository<Order> {
 	/**
   One customer's order history, newest first — the Builder seam: a raw
   relationship traversal the property-filter methods cannot express, run
-  through the scope's readCypher and hydrated back to entities.
+  through the scope's read() and hydrated back to entities.
   */
 	async historyForCustomer(customerID: string, limit = 20): Promise<Order[]> {
 		const builder = new Builder();
@@ -53,8 +53,7 @@ class OrderRepository extends Repository<Order> {
 			.orderBy("o.orderDate", "DESC")
 			.limit(limit);
 
-		const { query, params } = builder.build();
-		const output = await this.neode.readCypher(query, params, this.database);
+		const output = await this.neode.read(builder, undefined, this.database);
 
 		return hydrate(Order, output, "o");
 	}

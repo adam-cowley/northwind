@@ -66,8 +66,7 @@ export function createBasketTwinsRoutes(neode: Neode): Hono {
 		builder.orderBy("sharedProducts", "DESC");
 		builder.limit(10);
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		const twins = output.records.map((row) => ({
 			id: String(row.get("id")),

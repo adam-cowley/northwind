@@ -43,7 +43,7 @@ const PRODUCT_VECTOR_INDEX = vectorIndexName({
 
 /**
 App services over the concrete facade: the operations that need
-facade-level machinery (open transactions, the runner for
+facade-level machinery (managed transactions, the runner for
 PaginateService/knn) while the repositories stay on the INeode scope.
 */
 export class NorthwindService {
@@ -135,14 +135,13 @@ export class NorthwindService {
 	}
 
 	/**
-  The flagship write — one open transaction: edge entities carrying
-  purchase-time state, stock decrements guarded by @Version, all-or-nothing
-  rollback. Everything runs against the tx-scoped INeode.
+  The flagship write — one managed transaction (inWriteTransaction:
+  commit-on-success, rollback-and-rethrow): edge entities carrying
+  purchase-time state, stock decrements guarded by @Version,
+  all-or-nothing. Everything runs against the tx-scoped INeode.
   */
 	async placeOrder(input: PlaceOrderInput): Promise<Order> {
-		const tx = await this.neode.openWriteTransaction();
-
-		try {
+		const orderID = await this.neode.inWriteTransaction(async (tx) => {
 			const customer = await this.findOrThrow(tx, Customer, input.customerID);
 
 			// Employee + shipper are existence-checked here, then re-matched
@@ -247,24 +246,20 @@ export class NorthwindService {
 
 			builder.return("o.orderID AS orderID");
 
-			const { query, params } = builder.build();
+			await tx.write(builder, { lines: input.items });
 
-			await tx.writeCypher(query, { ...params, lines: input.items });
+			return orderRecord.orderID;
+		});
 
-			await tx.commit();
+		// Re-read through the projection-aware path for the response DTO —
+		// outside the transaction, which has committed
+		const placed = await this.orders.find(orderID);
 
-			// Re-read through the projection-aware path for the response DTO
-			const placed = await this.orders.find(orderRecord.orderID);
-
-			if (placed === undefined) {
-				throw new NeodeError("Order was placed but could not be read back");
-			}
-
-			return placed;
-		} catch (error) {
-			await tx.rollback();
-			throw error;
+		if (placed === undefined) {
+			throw new NeodeError("Order was placed but could not be read back");
 		}
+
+		return placed;
 	}
 
 	/**
@@ -306,7 +301,7 @@ export class NorthwindService {
 	/**
 	Add a line to an existing order: edge entity validated (NTS-509),
 	purchase-time price from the product, stock checked + decremented —
-	one open transaction.
+	one managed transaction (inWriteTransaction).
 	*/
 	async addLine(
 		orderID: number,
@@ -314,9 +309,7 @@ export class NorthwindService {
 	): Promise<void> {
 		const quantity = input.quantity ?? 1;
 
-		const tx = await this.neode.openWriteTransaction();
-
-		try {
+		await this.neode.inWriteTransaction(async (tx) => {
 			const order = await this.findOrThrow(tx, Order, orderID);
 
 			const product = await this.findOrThrow(tx, Product, input.productID);
@@ -339,12 +332,7 @@ export class NorthwindService {
 				"MATCH (p:Product { productID: $id }) SET p.unitsInStock = coalesce(p.unitsInStock, 0) - $qty, p.version = coalesce(p.version, 0) + 1",
 				{ id: product.productID, qty: quantity },
 			);
-
-			await tx.commit();
-		} catch (error) {
-			await tx.rollback();
-			throw error;
-		}
+		});
 	}
 
 	async ship(order: Order) {
@@ -420,7 +408,7 @@ export class NorthwindService {
 			.orderBy("revenue", "DESC")
 			.limit(limit);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			country:
@@ -447,7 +435,7 @@ export class NorthwindService {
 			)
 			.orderBy("month", "ASC");
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			month: String(row.get("month")),
@@ -480,7 +468,7 @@ export class NorthwindService {
 			.orderBy("revenue", "DESC")
 			.limit(limit);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			customerID: String(row.get("customerID")),
@@ -515,7 +503,7 @@ export class NorthwindService {
 			.orderBy("times", "DESC")
 			.limit(k);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			productID: Number(row.get("productID")),
@@ -544,7 +532,7 @@ export class NorthwindService {
 			)
 			.orderBy("month", "ASC");
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			month: String(row.get("month")),
@@ -566,7 +554,7 @@ export class NorthwindService {
 			.orderBy("revenue", "DESC")
 			.limit(limit);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => ({
 			name: String(row.get("name")),
@@ -692,8 +680,7 @@ export class NorthwindService {
 			.return("n", "r", "m")
 			.limit(50);
 
-		const { query, params } = builder.build();
-		const output = await this.neode.readCypher(query, params);
+		const output = await this.neode.read(builder);
 
 		const { jsonSafeRecord } = await import("neode");
 
@@ -764,7 +751,7 @@ export class NorthwindService {
 			"count(t) AS territories",
 		);
 
-		const output = await this.run(builder);
+		const output = await this.neode.read(builder);
 
 		return output.records.map((row) => {
 			const managerRaw = row.get("managerID");
@@ -786,12 +773,6 @@ export class NorthwindService {
 				territories: Number(row.get("territories")),
 			};
 		});
-	}
-
-	private async run(builder: Builder) {
-		const { query, params } = builder.build();
-
-		return this.neode.readCypher(query, params);
 	}
 
 	/** tx.find + the not-found throw — one helper, one error wording. */

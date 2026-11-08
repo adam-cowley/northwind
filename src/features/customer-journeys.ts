@@ -40,8 +40,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 			"secondOrder.orderID AS secondOrderID",
 		);
 
-		const { query, params } = pairs.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(pairs);
 
 		const journeys = output.records.map((row) => ({
 			customerID: String(row.get("customerID")),
@@ -75,8 +74,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 		transitions.orderBy("customers", "DESC");
 		transitions.limit(15);
 
-		const { query: rankedQuery, params: rankedParams } = transitions.build();
-		const ranking = await neode.readCypher(rankedQuery, rankedParams);
+		const ranking = await neode.read(transitions);
 
 		return context.json({
 			transitions: ranking.records.map((row) => ({
@@ -140,8 +138,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 		);
 		builder.orderBy("c.companyName", "ASC");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		return context.json({
 			fromProductID,

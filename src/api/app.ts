@@ -295,8 +295,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 			.to("p", "Product")
 			.return("line", "p");
 
-		const { query, params } = builder.build();
-		const output = await neode.readCypher(query, params);
+		const output = await neode.read(builder);
 
 		return context.json({
 			order: toJson(order),
@@ -527,8 +526,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		builder.set("rel", patch, "+=");
 		builder.return("properties(rel) AS line");
 
-		const { query, params } = builder.build();
-		const output = await neode.writeCypher(query, params);
+		const output = await neode.write(builder);
 
 		const safe = jsonSafeRecord(output.records[0]!);
 
