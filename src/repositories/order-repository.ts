@@ -16,14 +16,6 @@ transactional orchestration lives in NorthwindService (services/).
 @EntityRepository(Order)
 class OrderRepository extends Repository<Order> {
 	/**
-  The entity's metamodel, for facade-level services that need it
-  (PaginateService) — the schema field itself stays protected.
-  */
-	entitySchema() {
-		return this.schema;
-	}
-
-	/**
   Ship an order: stamp the shipped date + the timeToShip Duration. Dirty
   tracking writes only the two changed fields.
   */

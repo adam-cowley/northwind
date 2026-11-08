@@ -7,14 +7,6 @@ Catalog + stock operations. INeode-scope only (tx-safe).
 @EntityRepository(Product)
 class ProductRepository extends Repository<Product> {
 	/**
-  The entity's metamodel, for facade-level services that need it
-  (PaginateService, BulkService) — the schema field itself stays protected.
-  */
-	entitySchema() {
-		return this.schema;
-	}
-
-	/**
   One catalog page over the projection-aware read: every row already
   carries its supplier DTO, category, counts and read-model fields from
   the single query findAll() ran (NTS-501 fix).

@@ -384,7 +384,7 @@ export class NorthwindService {
 
 		return paginator.paginate(
 			Order,
-			this.orders.entitySchema(),
+			getModel(Order),
 			{},
 			{
 				limit,
@@ -628,7 +628,7 @@ export class NorthwindService {
 
 		const chunks = await new BulkService(this.neode.getConnection()).mergeMany(
 			Product,
-			this.products.entitySchema(),
+			getModel(Product),
 			rows,
 		);
 

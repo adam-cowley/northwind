@@ -26,7 +26,7 @@ export interface PlaceOrderInput {
 }
 
 /**
-The library's Duration value shape from two ISO timestamps, minute
+The library's Duration value shape from two ISO timestamps, second
 precision: { months, days, seconds, nanoseconds }
 */
 export function durationBetween(
