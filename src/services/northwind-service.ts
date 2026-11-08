@@ -136,9 +136,10 @@ export class NorthwindService {
 
 	/**
   The flagship write — one managed transaction (inWriteTransaction:
-  commit-on-success, rollback-and-rethrow): edge entities carrying
-  purchase-time state, stock decrements guarded by @Version,
-  all-or-nothing. Everything runs against the tx-scoped INeode.
+  rollback-and-rethrow on failure, the callback commits on success):
+  edge entities carrying purchase-time state, stock decrements guarded
+  by @Version, all-or-nothing. Everything runs against the tx-scoped
+  INeode.
   */
 	async placeOrder(input: PlaceOrderInput): Promise<Order> {
 		const orderID = await this.neode.inWriteTransaction(async (tx) => {
@@ -250,6 +251,12 @@ export class NorthwindService {
 
 			await tx.write(builder, { lines: input.items });
 
+			// The managed transaction rolls back and rethrows on failure;
+			// the commit itself is the callback's job (the library's
+			// inWriteTransaction contract — its integration tests commit
+			// explicitly inside the work)
+			await tx.commit();
+
 			return orderRecord.orderID;
 		});
 
@@ -334,6 +341,8 @@ export class NorthwindService {
 				"MATCH (p:Product { productID: $id }) SET p.unitsInStock = coalesce(p.unitsInStock, 0) - $qty, p.version = coalesce(p.version, 0) + 1",
 				{ id: product.productID, qty: quantity },
 			);
+
+			await tx.commit();
 		});
 	}
 
