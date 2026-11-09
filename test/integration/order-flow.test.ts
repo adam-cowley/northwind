@@ -133,6 +133,26 @@ describe("order lifecycle (the flagship write path)", () => {
 		expect(stored["timeToShip"]).toBeDefined();
 	});
 
+	it("derives daysToShip at read time, never stored (NTS-138)", async () => {
+		const placed = await service.placeOrder({
+			customerID: "ANTON",
+			employeeID: 2,
+			shipperID: 1,
+			items: [{ productID: 4, quantity: 1 }],
+		});
+
+		expect(placed?.daysToShip).toBeUndefined();
+
+		await service.ship(placed);
+
+		const reread = await service.orders.find(placed.orderID);
+
+		expect(reread?.daysToShip).toBe(0);
+
+		const stored = await rawOrder(neode, placed.orderID);
+		expect(stored["daysToShip"]).toBeUndefined();
+	});
+
 	it("cancels an order and its lines (DETACH DELETE)", async () => {
 		const placed = await service.placeOrder({
 			customerID: "ANTON",

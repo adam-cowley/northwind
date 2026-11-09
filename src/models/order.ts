@@ -1,4 +1,5 @@
 import {
+	Computed,
 	CreatedAt,
 	DateTime,
 	Direction,
@@ -57,6 +58,27 @@ class Order {
 		description: "Time from placement to shipment",
 	})
 	timeToShip!: unknown;
+
+	/**
+	NTS-138 — derived at read, never stored: whole days from placement to
+	shipment (undefined until the order ships). String() coerces hydrated
+	temporal objects to ISO before Date.parse.
+	*/
+	@Computed((entity) => {
+		const order = entity as Order;
+
+		return order.shippedDate == null
+			? undefined
+			: Math.max(
+					0,
+					Math.floor(
+						(Date.parse(String(order.shippedDate)) -
+							Date.parse(String(order.orderDate))) /
+							86_400_000,
+					),
+				);
+	})
+	daysToShip?: number;
 
 	/** When the record entered our graph — not a business date. */
 	@CreatedAt()

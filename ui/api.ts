@@ -75,6 +75,7 @@ export interface OrderRow {
 	orderID: number;
 	orderDate: string;
 	shippedDate?: string;
+	daysToShip?: number;
 	shipCountry: string;
 	shipCity: string;
 	freight: number;
