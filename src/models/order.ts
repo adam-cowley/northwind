@@ -99,15 +99,20 @@ class Order {
 	// ---- Graph shape ----
 
 	@OneToMany(() => Customer, "PLACED_BY", Direction.OUTGOING)
-	placedBy?: unknown;
+	placedBy?: Customer[];
 
 	@OneToMany(() => Employee, "TAKEN_BY", Direction.OUTGOING)
-	takenBy?: unknown;
+	takenBy?: Employee[];
 
 	@OneToMany(() => Shipper, "SHIPPED_VIA", Direction.OUTGOING)
-	shippedVia?: unknown;
+	shippedVia?: Shipper[];
 
-	/** The first-class edge: CONTAINS carries unitPrice/quantity/discount as an OrderLine. */
+	/**
+	The first-class edge: CONTAINS carries unitPrice/quantity/discount as
+	an OrderLine. Kept `unknown` on purpose: a relationship-entity target
+	loads at the spec ROOT only — typing the field would advertise nested
+	relationship keys the runtime rejects.
+	*/
 	@OneToMany(() => OrderLine, "CONTAINS", Direction.OUTGOING)
 	lines?: unknown;
 
@@ -127,6 +132,15 @@ class Order {
 		where: "NOT (this)-[:CONTAINS]->(node)",
 	})
 	coPurchased?: Pick<Product, "productID" | "name" | "unitPrice">[];
+
+	// NTS-563 — the type-level model map: the keys `with` load specs
+	// accept. coPurchased is a projection read-model, not a loadable key.
+	declare static readonly neodeRelationships: {
+		placedBy: true;
+		takenBy: true;
+		shippedVia: true;
+		lines: true;
+	};
 }
 
 export { Order };

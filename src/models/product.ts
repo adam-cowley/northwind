@@ -120,10 +120,17 @@ class Product {
 	// ---- Graph shape ----
 
 	@OneToMany(() => Supplier, "SUPPLIED_BY", Direction.OUTGOING)
-	suppliedBy?: unknown;
+	suppliedBy?: Supplier[];
 
 	@OneToMany(() => Category, "PART_OF", Direction.OUTGOING)
-	partOf?: unknown;
+	partOf?: Category[];
+
+	// NTS-563 — the type-level model map: the keys `with` load specs
+	// accept (the projection read-model fields above are not loadable keys)
+	declare static readonly neodeRelationships: {
+		suppliedBy: true;
+		partOf: true;
+	};
 }
 
 export { Product };

@@ -5,7 +5,7 @@ import { Product } from "../models/product.js";
 Catalog + stock operations. INeode-scope only (tx-safe).
 */
 @EntityRepository(Product)
-class ProductRepository extends Repository<Product> {
+class ProductRepository extends Repository<Product, typeof Product> {
 	/**
   One catalog page over the projection-aware read: every row already
   carries its supplier DTO, category, counts and read-model fields from

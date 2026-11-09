@@ -10,7 +10,7 @@ order-history read lives there too now — the NTS-560 load spec on
 Customer.orders (was: the Builder seam here).
 */
 @EntityRepository(Order)
-class OrderRepository extends Repository<Order> {
+class OrderRepository extends Repository<Order, typeof Order> {
 	/**
   Ship an order: stamp the shipped date + the timeToShip Duration. Dirty
   tracking writes only the two changed fields.

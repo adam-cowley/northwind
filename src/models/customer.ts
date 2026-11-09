@@ -65,6 +65,10 @@ class Customer {
 	*/
 	@OneToMany(() => Order, "PLACED_BY", Direction.INCOMING)
 	orders?: Order[];
+
+	// NTS-563 — the type-level model map: the keys `with` load specs
+	// accept (the runtime EntitySchema stays the source of truth)
+	declare static readonly neodeRelationships: { orders: true };
 }
 
 export { Customer };

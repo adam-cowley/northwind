@@ -386,7 +386,7 @@ export class NorthwindService {
 			relationships: { exclude: ["orders"] },
 		});
 
-		const history = (customer.orders ?? []) as Order[];
+		const history = customer.orders ?? [];
 
 		return { customer: customerPayload, history: history.map((order) => toJson(order)) };
 	}
