@@ -24,42 +24,44 @@ function text(value: unknown): string {
 	return value === null || value === undefined ? "" : String(value);
 }
 
-interface ProductRef {
-	id: number | null;
-	name: string | null;
-	stock: number | null;
-}
-
-interface CustomerRef {
-	id: string | null;
-	company: string | null;
-	country: string | null;
-}
-
 export function createSupplyExposureRoutes(neode: Neode): Hono {
 	const routes = withErrorMap(new Hono());
 
-	// Ranked exposure for every supplier (OPTIONAL MATCH keeps suppliers
-	// whose products were never ordered, at zero)
+	// Ranked exposure for every supplier. COUNT {} subqueries keep suppliers
+	// whose products were never ordered (they count 0) with no row
+	// fan-out — the house doctrine instead of OPTIONAL MATCH (NTS-565).
 	routes.get("/supply-exposure", async (context) => {
 		const builder = new Builder();
 
-		builder.optionalMatch("s", "Supplier");
-		builder
-			.relationship("SUPPLIED_BY", "in", "rs")
-			.to("p", "Product")
-			.relationship("CONTAINS", "in", "rc")
-			.to("o", "Order")
-			.relationship("PLACED_BY", "out", "ro")
-			.to("c", "Customer");
-
+		builder.match("s", "Supplier");
+		builder.countSubquery("products", (sub) =>
+			sub.match("s").relationship("SUPPLIED_BY", "in").to("p", "Product"),
+		);
+		builder.countSubquery("orders", (sub) =>
+			sub
+				.match("s")
+				.relationship("SUPPLIED_BY", "in")
+				.to("p", "Product")
+				.relationship("CONTAINS", "in")
+				.to("o", "Order"),
+		);
+		builder.countSubquery("customers", (sub) =>
+			sub
+				.match("s")
+				.relationship("SUPPLIED_BY", "in")
+				.to("p", "Product")
+				.relationship("CONTAINS", "in")
+				.to("o", "Order")
+				.relationship("PLACED_BY", "out")
+				.to("c", "Customer")
+				// distinct customers: one customer placing many orders carrying
+				// the supplier's products counts once
+				.return("DISTINCT c AS customer"),
+		);
 		builder.return(
 			"s.supplierID AS id",
 			"s.companyName AS company",
 			"s.country AS country",
-			"count(DISTINCT p) AS products",
-			"count(DISTINCT o) AS orders",
-			"count(DISTINCT c) AS customers",
 		);
 		builder.orderBy("customers", "DESC");
 		builder.orderBy("orders", "DESC");
@@ -91,22 +93,6 @@ export function createSupplyExposureRoutes(neode: Neode): Hono {
 
 		builder.match("s", "Supplier", { supplierID: supplierId });
 
-		builder.optionalMatch("s");
-		builder.relationship("SUPPLIED_BY", "in", "rs").to("p", "Product");
-		builder.with(
-			"s",
-			"collect({id: p.productID, name: p.name, stock: p.unitsInStock}) AS products",
-		);
-
-		builder.optionalMatch("s");
-		builder
-			.relationship("SUPPLIED_BY", "in", "rs2")
-			.to("p2", "Product")
-			.relationship("CONTAINS", "in", "rc")
-			.to("o", "Order")
-			.relationship("PLACED_BY", "out", "ro")
-			.to("c", "Customer");
-
 		builder.return(
 			"s.supplierID AS id",
 			"s.companyName AS company",
@@ -118,40 +104,59 @@ export function createSupplyExposureRoutes(neode: Neode): Hono {
 			"s.region AS region",
 			"s.country AS country",
 			"s.postalCode AS postalCode",
-			"products",
-			"count(DISTINCT o) AS orders",
-			"collect(DISTINCT {id: c.customerID, company: c.companyName, country: c.country}) AS customers",
+			// pattern comprehension: no order needed, [] when the supplier
+			// carries no products (house doctrine, NTS-565)
+			"[(s)<-[:SUPPLIED_BY]-(p:Product) | p { .productID, .name, .unitsInStock }] AS products",
+		);
+		builder.countSubquery("orders", (sub) =>
+			sub
+				.match("s")
+				.relationship("SUPPLIED_BY", "in")
+				.to("p2", "Product")
+				.relationship("CONTAINS", "in")
+				.to("o", "Order"),
+		);
+		// DISTINCT customers come out of the COLLECT {} subquery — one row
+		// per customer however many orders carried them
+		builder.collectSubquery("customers", (sub) =>
+			sub
+				.match("s")
+				.relationship("SUPPLIED_BY", "in")
+				.to("p3", "Product")
+				.relationship("CONTAINS", "in")
+				.to("o2", "Order")
+				.relationship("PLACED_BY", "out")
+				.to("c", "Customer")
+				.return("DISTINCT c { .customerID, .companyName, .country } AS customer"),
 		);
 
 		const output = await neode.read(builder);
 
 		const row = output.records[0];
 
-		// An unmatched row still comes back with s = null when the supplier
-		// does not exist — treat it as 404 (null maps in the collects are
-		// filtered below)
-		if (row === undefined || row.get("id") === null) {
+		// A hard MATCH yields no rows for an unknown supplier — 404
+		if (row === undefined) {
 			return context.json(
 				{ error: `Supplier ${context.req.param("supplierId")} not found` },
 				404,
 			);
 		}
 
-		const products = (row.get("products") as ProductRef[])
-			.filter((product) => product.id !== null)
-			.map((product) => ({
-				id: Number(product.id),
+		const products = (row.get("products") as { productID: number; name: string; unitsInStock: number }[]).map(
+			(product) => ({
+				id: Number(product.productID),
 				name: String(product.name),
-				stock: Number(product.stock),
-			}));
+				stock: Number(product.unitsInStock),
+			}),
+		);
 
-		const customers = (row.get("customers") as CustomerRef[])
-			.filter((customer) => customer.id !== null)
-			.map((customer) => ({
-				id: String(customer.id),
-				company: String(customer.company),
+		const customers = (row.get("customers") as { customerID: string; companyName: string; country: string }[]).map(
+			(customer) => ({
+				id: String(customer.customerID),
+				company: String(customer.companyName),
 				country: String(customer.country),
-			}));
+			}),
+		);
 
 		return context.json({
 			supplier: {

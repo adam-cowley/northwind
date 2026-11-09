@@ -135,11 +135,13 @@ describe("supply-chain exposure (NTS-532)", () => {
 		await routes.request("/supply-exposure");
 
 		const ranked = statements.filter((statement) =>
-			statement.includes("count(DISTINCT c)"),
+			statement.includes("COUNT {"),
 		);
 
 		expect(ranked).toHaveLength(1);
-		expect(ranked[0]).toContain("OPTIONAL MATCH");
+		// NTS-565 doctrine: the ranking is one statement with COUNT {}
+		// subqueries — no OPTIONAL MATCH, no row fan-out
+		expect(ranked[0]).not.toContain("OPTIONAL MATCH");
 	});
 
 	it("closes cleanly", async () => {
