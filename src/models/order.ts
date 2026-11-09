@@ -117,6 +117,13 @@ class Order {
 	lines?: unknown;
 
 	/**
+	NTS-499 — the same CONTAINS edge, node-targeted: the related() +
+	edge-return read the order-lines view uses (rows of product + edge).
+	*/
+	@OneToMany(() => Product, "CONTAINS", Direction.OUTGOING)
+	products?: Product[];
+
+	/**
 	NTS-547 — products co-ordered with THIS order's products (other orders
 	containing them), not already in the order itself: the two-hop co-purchase
 	read, projected inline with the order.
@@ -140,6 +147,7 @@ class Order {
 		takenBy: true;
 		shippedVia: true;
 		lines: true;
+		products: true;
 	};
 }
 

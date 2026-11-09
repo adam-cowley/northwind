@@ -6,12 +6,14 @@ import {
 	Builder,
 	EventType,
 	type QueryExecutedEvent,
+	type RelationshipEdgeRead,
 	formatSchemaDrift,
 	inspectSchema,
 	jsonSafeRecord,
 	ontologyMarkdown,
 	schemaDrift,
 	toJson,
+	type WithMethods,
 } from "neode";
 import type Neode from "neode";
 import { currentUser, login, logout, loginPage } from "../auth.js";
@@ -20,6 +22,8 @@ import { mapApiError } from "./errors.js";
 import { intQuery } from "./queries.js";
 
 import { Customer } from "../models/customer.js";
+import type { Order } from "../models/order.js";
+import type { Product } from "../models/product.js";
 import type { NorthwindService } from "../services/northwind-service.js";
 
 export interface QueryInspectorEntry {
@@ -345,37 +349,25 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 			return context.json({ error: "not_found" }, 404);
 		}
 
-		const builder = new Builder();
-
-		builder
-			.match("o", "Order", { orderID: order.orderID })
-			.relationship("CONTAINS", "out", "line")
-			.to("p", "Product")
-			.return("line", "p");
-
-		const output = await neode.read(builder);
+		// NTS-499 — the edge-returning related() read: each row carries the
+		// hydrated product alongside the traversed CONTAINS edge, no raw
+		// builder or result-row casts
+		const rows = (await (order as WithMethods<Order>)
+			.related("products")
+			.withRelationship()
+			.find()) as unknown as RelationshipEdgeRead<Product>[];
 
 		return context.json({
 			order: toJson(order),
-			lines: output.records.map((row) => {
-				const rawRel = row.get("line") as
-					| { elementId?: string; properties?: Record<string, unknown> }
-					| undefined;
-				const rawProduct = row.get("p") as
-					| { properties?: Record<string, unknown> }
-					| undefined;
-
-				const relProps = rawRel?.properties ?? {};
-				const prodProps = rawProduct?.properties ?? {};
-
+			lines: rows.map(({ node, edge }) => {
 				// Flat shapes: the view should not know the wire format
 				return {
-					elementId: rawRel?.elementId,
-					productID: Number(prodProps["productID"]),
-					name: String(prodProps["name"] ?? ""),
-					unitPrice: Number(prodProps["unitPrice"] ?? 0),
-					quantity: Number(relProps["quantity"] ?? 0),
-					discount: Number(relProps["discount"] ?? 0),
+					elementId: edge.elementId,
+					productID: Number(node.productID),
+					name: String(node.name ?? ""),
+					unitPrice: Number(node.unitPrice ?? 0),
+					quantity: Number(edge.properties["quantity"] ?? 0),
+					discount: Number(edge.properties["discount"] ?? 0),
 				};
 			}),
 		});
