@@ -50,6 +50,7 @@ pnpm --filter northwind dev       # rebuilds + restarts on change (esbuild watch
 | `Repository#search` (declarative fulltext, NTS-436)                                                     | `ProductRepository.searchProducts`                                                              |
 | Facade CRUD + `merge`/`mergeOn`                                                                         | customer create (409 via `ConstraintViolationError`), idempotent seed                           |
 | `openWriteTransaction` + tx-scoped `INeode`                                                             | `NorthwindService.placeOrder` — all-or-nothing order placement                                  |
+| `neode.transaction()` — ambient tx via AsyncLocalStorage (NTS-156)                                      | request middleware: every write request runs in one transaction (calls inside join it; bulk/explain/profile/schema + `/api/ask` routes opt out) |
 | `relate()` with edge-entity properties                                                                  | order lines, validated + converted (NTS-509)                                                    |
 | `delete()` / DETACH DELETE                                                                              | cancel order                                                                                    |
 | `PaginateService` offset mode                                                                           | catalog pages                                                                                   |

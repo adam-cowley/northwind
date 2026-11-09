@@ -26,11 +26,6 @@ class OrderRepository extends Repository<Order> {
 
 		return this.save(order);
 	}
-
-	/** Cancel an order — DETACH DELETE drops the order and its CONTAINS lines. */
-	async cancel(orderID: number): Promise<void> {
-		await this.delete(orderID);
-	}
 }
 
 export { OrderRepository };

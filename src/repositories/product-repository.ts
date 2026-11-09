@@ -36,13 +36,23 @@ class ProductRepository extends Repository<Product> {
 	}
 
 	/**
-  Soft discontinuation: the flag, not a delete — order history must keep
-  resolving. Dirty tracking (NTS-157) means save() writes only this field.
+  Apply a partial patch to a product by primary key, returning the
+  updated entity — or undefined when no product matches. Runs inside the
+  caller's ambient transaction when one is open (the request tx
+  middleware, or neode.transaction()); two autocommits otherwise —
+  same isolation as find() + patch() today.
   */
-	async discontinue(product: Product): Promise<Product> {
-		product.discontinued = true;
+	async update(
+		id: number,
+		patch: Partial<Product>,
+	): Promise<Product | undefined> {
+		const product = await this.find(id);
 
-		return this.save(product);
+		if (product === undefined) {
+			return undefined;
+		}
+
+		return this.patch(product, patch);
 	}
 
 	/** Atomic stock bump — one server-side statement, concurrency-safe. */

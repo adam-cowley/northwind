@@ -126,10 +126,6 @@ export class NorthwindService {
 			.slice(0, k);
 	}
 
-	async discontinue(product: Product) {
-		return this.products.discontinue(product);
-	}
-
 	async restock(product: Product, by: number) {
 		return this.products.restock(product, by);
 	}
@@ -347,7 +343,9 @@ export class NorthwindService {
 	}
 
 	async cancel(orderID: number) {
-		return this.orders.cancel(orderID);
+		// Repository.delete(id) — DETACH DELETE drops the order and its
+		// CONTAINS lines (the lines are the edges, so no cascade needed).
+		return this.orders.delete(orderID);
 	}
 
 	/**

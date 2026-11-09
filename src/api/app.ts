@@ -148,6 +148,62 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		context.header("x-request-query-count", String(store.queries.length));
 	});
 
+	// ---- Request-scoped transactions (NTS-156 ambient tx) ----
+	// Every write request runs in one ambient transaction: all
+	// facade/repository calls inside join it (no handle threading), it
+	// commits with the response and rolls back on a throw. `retries: 0`
+	// below — a transient retry re-runs next(), and the request body
+	// stream cannot be re-read.
+	//
+	// NO_REQUEST_TX — handlers on paths that manage their own
+	// transactions/sessions (bulk, explain/profile, schema management —
+	// see the join list on Neode#transaction) would SELF-DEADLOCK on the
+	// embedded Relate engine's single-transaction connection while the
+	// request tx holds it; /api/ask must not hold a tx open across the
+	// LLM fetch. Add a route here when its handler calls one of those.
+	// Even for joining handlers this serialises concurrent writes on the
+	// embedded engine — scope it per route group if that bites.
+	const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+	const NO_REQUEST_TX = new Set([
+		"/api/ask",
+		"/api/profile",
+		"/api/products/import",
+		"/api/schema/repair",
+		"/api/load-test",
+	]);
+
+	app.use("/api/*", async (context, next) => {
+		if (
+			!WRITE_METHODS.has(context.req.method) ||
+			NO_REQUEST_TX.has(context.req.path)
+		) {
+			return next();
+		}
+
+		return neode.transaction(
+			async () => {
+				const response = await next();
+
+				// Hono maps handler errors BELOW this middleware (compose catches
+				// per dispatch level and sets context.error), so a failed write
+				// resolves next() instead of rejecting it — the managed unit's
+				// success path would then throw its rollback-only NeodeError over
+				// the handler's mapped response. Rethrow: the unit takes the catch
+				// path (rollback + rethrow original) and the original error
+				// surfaces through the normal error mapping.
+				if (context.error !== undefined) {
+					throw context.error;
+				}
+
+				return response;
+			},
+			{
+				routing: "WRITE",
+				retries: 0,
+			},
+		);
+	});
+
 	// ---- Error mapping: the typed error taxonomy → HTTP ----
 	app.onError(mapApiError);
 
@@ -233,15 +289,17 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 	});
 
 	app.post("/api/products/:id/discontinue", async (context) => {
-		const product = await service.products.find(
+		// One tx: find + flag flip (joins the request tx opened above)
+		const product = await service.products.update(
 			Number(context.req.param("id")),
+			{ discontinued: true },
 		);
 
 		if (product === undefined) {
 			return context.json({ error: "not_found" }, 404);
 		}
 
-		return context.json(toJson(await service.discontinue(product)));
+		return context.json(toJson(product));
 	});
 
 	app.post("/api/products/:id/restock", async (context) => {
