@@ -243,7 +243,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 		const result = await service.catalog(page, limit, filter);
 
-		return context.json({ ...result, items: result.items.map(toJson) });
+		return context.json({ ...result, items: result.items.map((item) => toJson(item)) });
 	});
 
 	app.get("/api/products/:id", async (context) => {
@@ -335,7 +335,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 			intQuery(context, "limit", 20),
 		);
 
-		return context.json({ ...feed, items: feed.items.map(toJson) });
+		return context.json({ ...feed, items: feed.items.map((item) => toJson(item)) });
 	});
 
 	app.get("/api/orders/:id", async (context) => {
@@ -457,7 +457,7 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 			radius,
 		);
 
-		return context.json({ suppliers: suppliers.map(toJson) });
+		return context.json({ suppliers: suppliers.map((item) => toJson(item)) });
 	});
 
 	// ---- Analytics (pure Builder) ----

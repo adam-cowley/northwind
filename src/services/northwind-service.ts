@@ -379,17 +379,16 @@ export class NorthwindService {
 		}
 
 		// Serialise through toJson: hydrated temporal objects (the client's
-		// decoded classes) would crash string-handling clients
-		const payload = toJson(customer);
-
-		// NTS-560: the load spec materializes `orders` as an own property,
-		// which toJson serialises eagerly — strip it, the wire shape keeps
-		// the history array separate
-		const { orders: _orders, ...customerPayload } = payload;
+		// decoded classes) would crash string-handling clients. NTS-564 —
+		// `orders` is serialised separately as `history`, so the wire keeps
+		// the payload order-free via the exclude option.
+		const customerPayload = toJson(customer, {
+			relationships: { exclude: ["orders"] },
+		});
 
 		const history = (customer.orders ?? []) as Order[];
 
-		return { customer: customerPayload, history: history.map(toJson) };
+		return { customer: customerPayload, history: history.map((order) => toJson(order)) };
 	}
 
 	/** Suppliers within `radiusKm` of a point — the withinDistance() demo. */

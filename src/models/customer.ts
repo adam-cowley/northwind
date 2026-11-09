@@ -64,7 +64,7 @@ class Customer {
 	ref keeps the Customer ↔ Order import cycle safe (order.ts imports this).
 	*/
 	@OneToMany(() => Order, "PLACED_BY", Direction.INCOMING)
-	orders?: unknown;
+	orders?: Order[];
 }
 
 export { Customer };
