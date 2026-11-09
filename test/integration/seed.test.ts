@@ -110,11 +110,16 @@ describe("seed (the idempotent Northwind load)", () => {
 
 		const names = output.records.map((row) => String(row.get("name")));
 
-		// Range (unique + index), fulltext and vector families all present
-		expect(names).toContain("product_productID_unique");
-		expect(names).toContain("product_name_supplierid_unique"); // NTS-140 composite
-		expect(names).toContain("product_name_fulltext");
-		expect(names).toContain("product_embedding_vector");
+		// Range (unique + index), fulltext and vector families all present.
+		// NTS-598 made schema object names injective: readable part is
+		// lowercased with a deterministic hash suffix, so assert on the
+		// lowercased name prefix rather than the full name.
+		const hasObject = (prefix: string) =>
+			names.some((name) => name.startsWith(prefix));
+		expect(hasObject("product_productid_unique")).toBe(true);
+		expect(hasObject("product_name_supplierid_unique")).toBe(true); // NTS-140 composite
+		expect(hasObject("product_name_fulltext")).toBe(true);
+		expect(hasObject("product_embedding_vector")).toBe(true);
 	});
 
 	it("closes cleanly", async () => {
