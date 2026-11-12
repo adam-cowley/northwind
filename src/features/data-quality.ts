@@ -105,11 +105,9 @@ export function createDataQualityRoutes(neode: Neode): Hono {
 	const routes = withErrorMap(new Hono());
 
 	routes.get("/quality", async (context) => {
-		const checks = [];
-
-		for (const check of CHECKS) {
-			checks.push(await runCheck(neode, check));
-		}
+		const checks = await Promise.all(
+			CHECKS.map((check) => runCheck(neode, check)),
+		);
 
 		return context.json({ checks });
 	});

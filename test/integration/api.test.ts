@@ -69,12 +69,14 @@ describe("Northwind Ops API (e2e via app.request)", () => {
 		});
 		const body = (await response.json()) as {
 			product: { productID: number };
-			similar: unknown[];
+			similar: { score: number; product: { name?: string } }[];
 		};
 
 		expect(response.status).toBe(200);
 		expect(body.product.productID).toBe(4);
 		expect(body.similar.length).toBeGreaterThan(0);
+		// Nested under `product` — the shape /api/search and the UI use
+		expect(typeof body.similar[0]?.product?.name).toBe("string");
 	});
 
 	it("404s a missing product", async () => {
@@ -301,6 +303,17 @@ describe("Northwind Ops API (e2e via app.request)", () => {
 
 		expect(response.status).toBe(200);
 		expect(body.items).toHaveLength(12);
+	});
+
+	it("clamps ?page=0 to the first page instead of a negative SKIP", async () => {
+		const response = await app.request("/api/catalog?page=0&limit=5", {
+			headers: { cookie },
+		});
+		const body = (await response.json()) as { page: number; items: unknown[] };
+
+		expect(response.status).toBe(200);
+		expect(body.page).toBe(1);
+		expect(body.items).toHaveLength(5);
 	});
 
 	it("serves a mounted insight route and the entity route (NTS-556 registry)", async () => {

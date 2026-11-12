@@ -12,14 +12,13 @@ class ProductRepository extends Repository<Product, typeof Product> {
   the single query findAll() ran (NTS-501 fix).
   */
 	async catalog(page = 1, limit = 12, filter: Partial<Product> = {}) {
-		const [items, total] = await Promise.all([
-			this.findAll(filter, {
-				order: { productID: "ASC" },
-				skip: (page - 1) * limit,
-				limit,
-			}),
-			this.count(filter),
-		]);
+		// findAndCount: the page and its total in one call (a consistent
+		// snapshot when the repository is tx-scoped)
+		const { items, total } = await this.findAndCount(filter, {
+			order: { productID: "ASC" },
+			skip: (page - 1) * limit,
+			limit,
+		});
 
 		return {
 			items,

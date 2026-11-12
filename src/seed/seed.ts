@@ -75,21 +75,17 @@ export async function seed(
 	await neode.mergeMany(Employee, data.employees);
 	await neode.mergeMany(Customer, data.customers);
 
-	// 3. Products one-by-one in one transaction — the write path computes
-	//    each embedding from the name (the bulk UNWIND path cannot SET
-	//    vector-backed properties: library shortcut, bulk.service.ts) —
+	// 3. Products in chunked UNWIND batches — mergeMany computes each
+	//    row's embedding from the name (the @Vector provider, NTS-449) —
 	//    then relate SUPPLIED_BY/PART_OF from the dataset's foreign keys
+	await neode.mergeMany(Product, data.products as Record<string, unknown>[]);
+
 	await neode.inWriteTransaction(async (txProducts) => {
 		for (const product of data.products) {
-			const productID = product["productID"] as number;
-
-			const existing = await txProducts.find(Product, productID);
-
-			if (existing === undefined) {
-				await txProducts.save(Object.assign(new Product(), product));
-			}
-
-			const productEntity = await txProducts.find(Product, productID);
+			const productEntity = await txProducts.find(
+				Product,
+				product["productID"] as number,
+			);
 
 			if (productEntity === undefined) {
 				continue;
@@ -224,17 +220,29 @@ async function relateReferenceEdges(
 			}
 		}
 
-		// The seed owns this relationship's shape: clear stale edges from
-		// earlier direction bugs, then relate employee → manager
+		// The seed owns this relationship's shape: syncEdges (NTS-161) diffs
+		// each employee's outgoing REPORTS_TO edges against the exact
+		// manager set, detaching stale ones and relating the rest in one
+		// managed write. It only touches the declared OUTGOING direction,
+		// so the wipe below still clears reverse edges left by earlier
+		// direction bugs.
 		await tx.writeCypher("MATCH ()-[r:REPORTS_TO]->() DELETE r", {});
 
 		for (const { employeeID, reportsTo } of data.employeeManagers) {
 			const employee = await tx.find(Employee, employeeID);
+
+			if (employee === undefined) {
+				continue;
+			}
+
 			const manager = await tx.find(Employee, reportsTo);
 
-			if (employee !== undefined && manager !== undefined) {
-				await tx.relate(Employee, employee, manager, "reportsToRel");
-			}
+			await tx.syncEdges(
+				Employee,
+				employee,
+				"reportsToRel",
+				manager === undefined ? [] : [manager],
+			);
 		}
 	});
 }
@@ -256,9 +264,8 @@ export async function seedSyntheticOrders(
 
 	// The graph is the truth: orders placed through the API since the seed
 	// occupy dataset IDs too (the load test ran after real orders)
-	const maxOutput = await neode.readCypher(
-		"MATCH (o:Order) RETURN max(o.orderID) AS max",
-		{},
+	const maxOutput = await neode.read(
+		new Builder().match("o", "Order").return("max(o.orderID) AS max"),
 	);
 
 	const maxReal = Number(maxOutput.records[0]?.get("max") ?? 10247);

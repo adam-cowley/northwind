@@ -95,8 +95,6 @@ export const api = {
 		),
 	updateProduct: (id: number, body: Partial<ProductRow>) =>
 		send<ProductRow>(`/api/products/${id}`, "PUT", body),
-	upsertProduct: (body: Record<string, unknown>) =>
-		send<ProductRow>("/api/products/0", "PUT", body),
 	discontinue: (id: number) =>
 		send<ProductRow>(`/api/products/${id}/discontinue`, "POST"),
 	restock: (id: number, by: number) =>
@@ -111,14 +109,6 @@ export const api = {
 		get<CursorPage<OrderRow>>(
 			`/api/orders${after ? `?after=${encodeURIComponent(after)}` : ""}`,
 		),
-	order: (id: number) =>
-		get<{
-			order: OrderRow;
-			lines: {
-				product: Record<string, unknown>;
-				line: Record<string, unknown>;
-			}[];
-		}>(`/api/orders/${id}`),
 	placeOrder: (body: unknown) => send<OrderRow>("/api/orders", "POST", body),
 	ship: (id: number) => send<OrderRow>(`/api/orders/${id}/ship`, "POST"),
 	cancel: (id: number) =>
