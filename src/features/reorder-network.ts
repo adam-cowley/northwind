@@ -40,7 +40,7 @@ export function createReorderNetworkRoutes(neode: Neode): Hono {
 		const lowStock = new Builder();
 		lowStock
 			.match("p", "Product")
-			.whereRaw("p.unitsInStock <= p.reorderLevel")
+			.whereProps("p.unitsInStock", "<=", "p.reorderLevel")
 			.relationship("SUPPLIED_BY", "out", "sr")
 			.to("s", "Supplier")
 			.return(

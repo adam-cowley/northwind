@@ -36,7 +36,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 			"collect(o)[0] AS firstOrder",
 			"collect(o)[1] AS secondOrder",
 		);
-		builder.whereRaw("secondOrder IS NOT NULL");
+		builder.whereNotNull("secondOrder");
 		builder.with(
 			"collect({ customerID: c.customerID, firstOrderID: firstOrder.orderID, secondOrderID: secondOrder.orderID }) AS journeys",
 		);
@@ -58,7 +58,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 					})
 					.relationship("CONTAINS", "out", "rs")
 					.to("sp", "Product")
-					.whereRaw("fp.productID <> sp.productID")
+					.whereProps("fp.productID", "<>", "sp.productID")
 					.return(
 						"fp.productID AS fromProductID",
 						"fp.name AS fromName",
@@ -117,7 +117,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 			"collect(o1)[0] AS firstOrder",
 			"collect(o1)[1] AS secondOrder",
 		);
-		builder.whereRaw("secondOrder IS NOT NULL");
+		builder.whereNotNull("secondOrder");
 
 		builder.match("first", "Order", {
 			orderID: new RawExpression("firstOrder.orderID"),
@@ -130,7 +130,7 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 
 		builder.where("fp.productID", fromProductID);
 		builder.where("sp.productID", toProductID);
-		builder.whereRaw("fp.productID <> sp.productID");
+		builder.whereProps("fp.productID", "<>", "sp.productID");
 
 		builder.return(
 			"c.customerID AS customerID",
