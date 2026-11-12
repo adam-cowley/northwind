@@ -25,7 +25,7 @@ export function createCategoryAffinityRoutes(neode: Neode): Hono {
 		builder.relationship("CONTAINS", "in", "rcA").to("o", "Order");
 		builder.relationship("CONTAINS", "out", "rcB").to("pB", "Product");
 		builder.relationship("PART_OF", "out", "rpB").to("cB", "Category");
-		builder.whereRaw("cA <> cB");
+		builder.whereProps("cA", "<>", "cB");
 		builder.return(
 			"cA.name AS categoryA",
 			"cB.name AS categoryB",

@@ -36,8 +36,8 @@ export function createBasketTwinsRoutes(neode: Neode): Hono {
 			.to("o2", "Order")
 			.relationship("CONTAINS", "out", "rc2")
 			.to("p2", "Product");
-		builder.whereRaw("other <> c");
-		builder.whereRaw("p2 IN mine");
+		builder.whereProps("other", "<>", "c");
+		builder.whereInRefs("p2", "mine");
 		builder.with("c", "mine", "other", "collect(DISTINCT p2) AS shared");
 
 		builder.match("other", "Customer");
