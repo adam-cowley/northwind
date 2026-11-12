@@ -31,7 +31,10 @@
 
 		"noEmit": true,
 
-		"paths": { "neode": ["../neode-ogm/src/index.ts"] }
+		"paths": {
+			"neode": ["../neode-ogm-nts-664/src/index.ts"],
+			"neode/express": ["../neode-ogm-nts-664/src/express/index.ts"]
+		}
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "dist", "dist-ui", "ui"]
