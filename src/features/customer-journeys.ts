@@ -20,61 +20,66 @@ export function createCustomerJourneysRoutes(neode: Neode): Hono {
 	const routes = withErrorMap(new Hono());
 
 	routes.get("/journeys", async (context) => {
-		// (1) Per customer with ≥ 2 orders: the earliest order and the next
-		// one, ordered by date within the customer.
-		const pairs = new Builder();
+		// ONE statement (NTS-660): the per-customer first/second-order
+		// pairs are collected server-side and UNWINDed inside a CALL
+		// subquery — no JS-marshalled $journeys param, one roundtrip.
+		const builder = new Builder();
 
-		pairs.match("c", "Customer");
-		pairs.relationship("PLACED_BY", "in", "ro").to("o", "Order");
-		pairs.with("c", "o");
-		pairs.withOrder("o.orderDate");
-		pairs.with(
+		// Per customer with ≥ 2 orders: the earliest order and the next
+		// one, ordered by date within the customer.
+		builder.match("c", "Customer");
+		builder.relationship("PLACED_BY", "in", "ro").to("o", "Order");
+		builder.with("c", "o");
+		builder.withOrder("o.orderDate");
+		builder.with(
 			"c",
 			"collect(o)[0] AS firstOrder",
 			"collect(o)[1] AS secondOrder",
 		);
-		pairs.whereRaw("secondOrder IS NOT NULL");
-		pairs.return(
-			"c.customerID AS customerID",
-			"firstOrder.orderID AS firstOrderID",
-			"secondOrder.orderID AS secondOrderID",
+		builder.whereRaw("secondOrder IS NOT NULL");
+		builder.with(
+			"collect({ customerID: c.customerID, firstOrderID: firstOrder.orderID, secondOrderID: secondOrder.orderID }) AS journeys",
 		);
 
-		const output = await neode.read(pairs);
-
-		const journeys = output.records.map((row) => ({
-			customerID: String(row.get("customerID")),
-			firstOrderID: Number(row.get("firstOrderID")),
-			secondOrderID: Number(row.get("secondOrderID")),
-		}));
-
-		// (2) Products of each pair's two orders → transition pairs ranked
+		// Products of each pair's two orders → transition pairs ranked
 		// by how many customers made the jump (a product repeated across
 		// baskets is not a journey, so self-transitions are filtered).
-		const transitions = new Builder();
-
-		transitions.param("journeys", journeys);
-		transitions.unwind("$journeys", "journey");
-		transitions.match("f", "Order", {
-			orderID: new RawExpression("journey.firstOrderID"),
-		});
-		transitions.relationship("CONTAINS", "out", "rf").to("fp", "Product");
-		transitions.match("s", "Order", {
-			orderID: new RawExpression("journey.secondOrderID"),
-		});
-		transitions.relationship("CONTAINS", "out", "rs").to("sp", "Product");
-		transitions.whereRaw("fp.productID <> sp.productID");
-		transitions.return(
-			"fp.productID AS fromProductID",
-			"fp.name AS fromName",
-			"sp.productID AS toProductID",
-			"sp.name AS toName",
-			"count(DISTINCT journey.customerID) AS customers",
+		builder.call(
+			(sub) =>
+				sub
+					.unwind("journeys", "journey")
+					.match("f", "Order", {
+						orderID: new RawExpression("journey.firstOrderID"),
+					})
+					.relationship("CONTAINS", "out", "rf")
+					.to("fp", "Product")
+					.match("s", "Order", {
+						orderID: new RawExpression("journey.secondOrderID"),
+					})
+					.relationship("CONTAINS", "out", "rs")
+					.to("sp", "Product")
+					.whereRaw("fp.productID <> sp.productID")
+					.return(
+						"fp.productID AS fromProductID",
+						"fp.name AS fromName",
+						"sp.productID AS toProductID",
+						"sp.name AS toName",
+						"count(DISTINCT journey.customerID) AS customers",
+					)
+					.orderBy("customers", "DESC")
+					.limit(15),
+			["journeys"],
 		);
-		transitions.orderBy("customers", "DESC");
-		transitions.limit(15);
 
-		const ranking = await neode.read(transitions);
+		builder.return(
+			"fromProductID",
+			"fromName",
+			"toProductID",
+			"toName",
+			"customers",
+		);
+
+		const ranking = await neode.read(builder);
 
 		return context.json({
 			transitions: ranking.records.map((row) => ({

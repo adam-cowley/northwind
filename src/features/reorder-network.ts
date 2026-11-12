@@ -63,7 +63,7 @@ export function createReorderNetworkRoutes(neode: Neode): Hono {
 			.match("p", "Product")
 			.relationship("CONTAINS", "in", "ro")
 			.to("o", "Order")
-			.whereRaw("o.shippedDate IS NULL")
+			.whereNull("o.shippedDate")
 			.return("p.productID AS productID", "count(DISTINCT o) AS openOrders");
 
 		const [lowStockOutput, openOrdersOutput] = await Promise.all([

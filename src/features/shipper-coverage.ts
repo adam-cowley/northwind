@@ -73,11 +73,13 @@ export function createShipperCoverageRoutes(neode: Neode): Hono {
 		// per country is that country's dominant shipper.
 		const dominance: { country: string; shipper: number; orders: number }[] =
 			[];
+		const seenCountries = new Set<string>();
 		for (const row of dominanceOutput.records) {
 			const country = String(row.get("country"));
-			if (dominance.some((winner) => winner.country === country)) {
+			if (seenCountries.has(country)) {
 				continue;
 			}
+			seenCountries.add(country);
 			dominance.push({
 				country,
 				shipper: Number(row.get("shipper")),

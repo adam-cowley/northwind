@@ -31,7 +31,7 @@
 
 		"noEmit": true,
 
-		"paths": { "neode": ["../neode-ogm-main-dist/src/index.ts"] }
+		"paths": { "neode": ["../neode-ogm/src/index.ts"] }
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "dist", "dist-ui", "ui"]

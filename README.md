@@ -16,7 +16,7 @@ pnpm --filter northwind start     # zero config: embedded engine + auto-seed
 # or against a real server:
 NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=x pnpm --filter northwind start
 
-pnpm --filter northwind test      # 63 tests, embedded engine, no setup
+pnpm --filter northwind test      # 122 tests, embedded engine, no setup
 pnpm --filter northwind dev       # rebuilds + restarts on change (esbuild watch → node --watch) + vite HMR on :5173
 ```
 
@@ -30,7 +30,7 @@ pnpm --filter northwind dev       # rebuilds + restarts on change (esbuild watch
 | `@Primary` business keys / `@Uuid`                                                                      | `customerID`, `productID`, `orderID`… / `OrderLine.id`                                          |
 | Property types: `float`, `number`, `boolean`, `datetime`, `date`, `duration`, `point`, arrays           | Order dates, `timeToShip`, supplier `location`, `Product.embedding`                             |
 | `@Version` optimistic locking (NTS-158)                                                                 | `Product.version` — concurrent stock writes conflict (order-flow test)                          |
-| `@CreatedAt`/`@UpdatedAt` (NTS-165)                                                                     | Customer, Supplier, Order                                                                       |
+| `@CreatedAt`/`@UpdatedAt` (NTS-165)                                                                     | Customer (both), Supplier + Order (`@CreatedAt`)                                                |
 | `@Unique` + composite uniques (NTS-140)                                                                 | `(name, supplierID)` on Product                                                                 |
 | `@Index`, `@Primary`                                                                                    | `shipCountry`, `country`, business keys                                                         |
 | `@Property` validation rules (Zod)                                                                      | `min`/`max` on prices, stock, quantities — 422s in the API                                      |
@@ -55,6 +55,10 @@ pnpm --filter northwind dev       # rebuilds + restarts on change (esbuild watch
 | `delete()` / DETACH DELETE                                                                              | cancel order                                                                                    |
 | `PaginateService` offset mode                                                                           | catalog pages                                                                                   |
 | `PaginateService` cursor/keyset mode                                                                    | the live order feed (temporal cursor)                                                           |
+| `Repository#findAndCount`                                                                               | catalog pages (page + total in one call)                                                        |
+| `Repository#exists`                                                                                     | `placeOrder`'s employee/shipper checks (no projection hydrated)                                  |
+| `Repository#findAllByIds`                                                                               | `placeOrder`'s line-item products — one pk-IN read                                               |
+| `inspectSchemaAndDrift`                                                                                 | Ops page — one schema probe serves inspection + drift                                            |
 | `knn()` (Cypher 25 `SEARCH` → `queryNodes` fallback)                                                    | "similar products", kNN half of search                                                          |
 | `withinDistance`                                                                                        | supplier map (WGS 84 points, metres)                                                            |
 | `Builder` (fluent Cypher, zero string interpolation)                                                    | analytics: revenue by country, top products, customer history                                   |
@@ -103,7 +107,7 @@ The console grew up. What the second act adds on top of the first:
 - **Org chart** — the eager `REPORTS_TO` self-relationship + `COVERS`→Territory→Region, one query
 - **Load-test panel** — N factory orders live via chunked UNWIND (`100 orders in ~32ms` measured); the Dashboard's SSE feed lights up
 - **Bulk import** — paste products, chunked `mergeMany`, idempotent
-- **Bulk price update** — all-or-nothing `batch()` with `@Version` bumps
+- **Bulk price update** — all-or-nothing `runAll()` with `@Version` bumps
 - **Console EXPLAIN** — plan trees per query; **PROFILE** view in Ops
 - **Drift repair** — apply missing schema objects from the Ops page (never drops)
 - **NL→Cypher** — optional: set `NW_LLM_URL` + `NW_LLM_KEY` and the Console gains an ontology-grounded question box; without keys it hides

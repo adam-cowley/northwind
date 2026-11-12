@@ -1,9 +1,12 @@
 import Neode, {
 	Builder,
+	BulkService,
 	Direction,
+	Repository,
 	getModel,
 	applySchemaDrift,
 	formatSchemaDrift,
+	jsonSafeRecord,
 	schemaDrift,
 	knn,
 	NeodeError,
@@ -89,15 +92,16 @@ export class NorthwindService {
 
 	/** Full-text and kNN over the same query text — the two indexes side by side. */
 	async search(text: string, limit = 8) {
-		const textHits = await this.products.searchProducts(text, limit);
-
-		const vectorHits = await knn<Product>(
-			this.neode.getRunner(),
-			Product,
-			PRODUCT_VECTOR_INDEX,
-			embed(text),
-			limit,
-		);
+		const [textHits, vectorHits] = await Promise.all([
+			this.products.searchProducts(text, limit),
+			knn<Product>(
+				this.neode.getRunner(),
+				Product,
+				PRODUCT_VECTOR_INDEX,
+				embed(text),
+				limit,
+			),
+		]);
 
 		return {
 			text: textHits.map((hit) => ({
@@ -133,24 +137,40 @@ export class NorthwindService {
 	/**
   The flagship write — one managed transaction (inWriteTransaction:
   rollback-and-rethrow on failure, commit-on-success — NTS-561):
-  edge entities carrying purchase-time state, stock decrements guarded
-  by @Version, all-or-nothing. Everything runs against the tx-scoped
-  INeode.
+  edge entities carrying purchase-time state, stock decrements with a
+  post-write oversell guard (below), all-or-nothing. Everything runs
+  against the tx-scoped INeode.
   */
 	async placeOrder(input: PlaceOrderInput): Promise<Order> {
 		const orderID = await this.neode.inWriteTransaction(async (tx) => {
 			const customer = await this.findOrThrow(tx, Customer, input.customerID);
 
 			// Employee + shipper are existence-checked here, then re-matched
-			// by the order-creation statement below
-			await this.findOrThrow(tx, Employee, input.employeeID);
+			// by the order-creation statement below — a bare exists(), not a
+			// find(): the projected read-model (Employee's eager directReports)
+			// would be hydrated only to be discarded
+			await this.existsOrThrow(tx, Employee, input.employeeID);
 
-			await this.findOrThrow(tx, Shipper, input.shipperID);
+			await this.existsOrThrow(tx, Shipper, input.shipperID);
 
-			// Resolve + stock-check + schema-validate every line before writing
+			// Resolve + stock-check + schema-validate every line before
+			// writing — the products come back in ONE pk-IN read, not one
+			// find() per line
 			const lineSchema = getModel(OrderLine);
+			const products = new Map(
+				(
+					await new Repository<Product>(tx, Product).findAllByIds(
+						input.items.map((item) => item.productID),
+					)
+				).map((product) => [product.productID, product]),
+			);
+
 			for (const item of input.items) {
-				const product = await this.findOrThrow(tx, Product, item.productID);
+				const product = products.get(item.productID);
+
+				if (product === undefined) {
+					throw new NeodeError(`Product ${item.productID} does not exist`);
+				}
 
 				if (product.unitsInStock < item.quantity) {
 					throw new OutOfStockError(
@@ -247,6 +267,26 @@ export class NorthwindService {
 
 			await tx.write(builder, { lines: input.items });
 
+			// Oversell guard: the per-line stock check above ran at read
+			// time — on a real server a concurrent order can take the stock
+			// between the check and the decrement (the embedded engine
+			// serialises writes, so this never fires there). A line that
+			// drove stock negative rolls the whole order back.
+			const oversold = await tx.readCypher(
+				"MATCH (p:Product) WHERE p.productID IN $ids AND coalesce(p.unitsInStock, 0) < 0 RETURN p.productID AS id, p.unitsInStock AS stock",
+				{ ids: input.items.map((item) => item.productID) },
+			);
+
+			const offender = oversold.records[0];
+
+			if (offender !== undefined) {
+				const id = Number(offender.get("id"));
+				const requested =
+					input.items.find((item) => item.productID === id)?.quantity ?? 0;
+
+				throw new OutOfStockError(id, requested, Number(offender.get("stock")));
+			}
+
 			// NTS-561: the managed transaction commits on success and rolls
 			// back on throw — no explicit commit here (an explicit one is
 			// still legal; a second commit is a no-op)
@@ -331,10 +371,21 @@ export class NorthwindService {
 				discount: input.discount ?? 0,
 			});
 
-			await tx.writeCypher(
-				"MATCH (p:Product { productID: $id }) SET p.unitsInStock = coalesce(p.unitsInStock, 0) - $qty, p.version = coalesce(p.version, 0) + 1",
+			// The decrement re-checks stock under the write lock: a
+			// concurrent order that took the stock since the read-time
+			// check leaves no rows here, and the throw rolls the line back.
+			const guarded = await tx.writeCypher(
+				"MATCH (p:Product { productID: $id }) SET p.unitsInStock = coalesce(p.unitsInStock, 0) - $qty, p.version = coalesce(p.version, 0) + 1 WITH p WHERE p.unitsInStock >= 0 RETURN p.productID AS id",
 				{ id: product.productID, qty: quantity },
 			);
+
+			if (guarded.records.length === 0) {
+				throw new OutOfStockError(
+					product.productID,
+					quantity,
+					product.unitsInStock,
+				);
+			}
 		});
 	}
 
@@ -388,7 +439,10 @@ export class NorthwindService {
 
 		const history = customer.orders ?? [];
 
-		return { customer: customerPayload, history: history.map((order) => toJson(order)) };
+		return {
+			customer: customerPayload,
+			history: history.map((order) => toJson(order)),
+		};
 	}
 
 	/** Suppliers within `radiusKm` of a point — the withinDistance() demo. */
@@ -583,20 +637,21 @@ export class NorthwindService {
 	}
 
 	/**
-  Bulk price update (NTS-519): one statement per product in ONE batch()
-  — all-or-nothing, per-statement errors on failure.
+  Bulk price update (NTS-519): every row driven by ONE UNWIND statement
+  — all-or-nothing (a single statement is atomic), one roundtrip.
   */
 	async updatePrices(
 		updates: { productID: number; factor: number }[],
 	): Promise<{ applied: number }> {
-		const queries = updates.map((update) => ({
-			query:
-				"MATCH (p:Product { productID: $id }) " +
-				"SET p.unitPrice = round(p.unitPrice * $factor * 100) / 100, p.version = coalesce(p.version, 0) + 1",
-			params: { id: update.productID, factor: update.factor },
-		}));
+		const builder = new Builder();
 
-		await this.neode.batch(queries);
+		builder
+			.unwind("$updates", "u")
+			.match("p", "Product", { productID: new RawExpression("u.productID") })
+			.setExpr("p.unitPrice", "round(p.unitPrice * u.factor * 100) / 100")
+			.setExpr("p.version", "coalesce(p.version, 0) + 1");
+
+		await this.neode.write(builder, { updates });
 
 		return { applied: updates.length };
 	}
@@ -608,8 +663,6 @@ export class NorthwindService {
 	async importProducts(
 		rows: Record<string, unknown>[],
 	): Promise<{ imported: number; chunks: number }> {
-		const { BulkService } = await import("neode");
-
 		const chunks = await new BulkService(this.neode.getConnection()).mergeMany(
 			Product,
 			getModel(Product),
@@ -700,8 +753,6 @@ export class NorthwindService {
 			.limit(50);
 
 		const output = await this.neode.read(builder);
-
-		const { jsonSafeRecord } = await import("neode");
 
 		const first = output.records[0]?.get("n");
 
@@ -794,6 +845,17 @@ export class NorthwindService {
 		});
 	}
 
+	/** tx-scoped exists() + the not-found throw — the findOrThrow twin for checks that discard the entity. */
+	private async existsOrThrow<T>(
+		tx: INeode,
+		model: new (...arguments_: never[]) => T,
+		id: string | number,
+	): Promise<void> {
+		if (!(await new Repository<T>(tx, model).exists(id))) {
+			throw new NeodeError(`${model.name} ${id} does not exist`);
+		}
+	}
+
 	/** tx.find + the not-found throw — one helper, one error wording. */
 	private async findOrThrow<T>(
 		tx: INeode,
@@ -810,9 +872,8 @@ export class NorthwindService {
 	}
 
 	private async nextOrderID(tx: INeode): Promise<number> {
-		const output = await tx.readCypher(
-			"MATCH (o:Order) RETURN max(o.orderID) AS max",
-			{},
+		const output = await tx.read(
+			new Builder().match("o", "Order").return("max(o.orderID) AS max"),
 		);
 
 		const max = output.records[0]?.get("max");

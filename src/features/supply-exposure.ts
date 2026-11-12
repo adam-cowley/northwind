@@ -127,7 +127,9 @@ export function createSupplyExposureRoutes(neode: Neode): Hono {
 				.to("o2", "Order")
 				.relationship("PLACED_BY", "out")
 				.to("c", "Customer")
-				.return("DISTINCT c { .customerID, .companyName, .country } AS customer"),
+				.return(
+					"DISTINCT c { .customerID, .companyName, .country } AS customer",
+				),
 		);
 
 		const output = await neode.read(builder);
@@ -142,21 +144,29 @@ export function createSupplyExposureRoutes(neode: Neode): Hono {
 			);
 		}
 
-		const products = (row.get("products") as { productID: number; name: string; unitsInStock: number }[]).map(
-			(product) => ({
-				id: Number(product.productID),
-				name: String(product.name),
-				stock: Number(product.unitsInStock),
-			}),
-		);
+		const products = (
+			row.get("products") as {
+				productID: number;
+				name: string;
+				unitsInStock: number;
+			}[]
+		).map((product) => ({
+			id: Number(product.productID),
+			name: String(product.name),
+			stock: Number(product.unitsInStock),
+		}));
 
-		const customers = (row.get("customers") as { customerID: string; companyName: string; country: string }[]).map(
-			(customer) => ({
-				id: String(customer.customerID),
-				company: String(customer.companyName),
-				country: String(customer.country),
-			}),
-		);
+		const customers = (
+			row.get("customers") as {
+				customerID: string;
+				companyName: string;
+				country: string;
+			}[]
+		).map((customer) => ({
+			id: String(customer.customerID),
+			company: String(customer.companyName),
+			country: String(customer.country),
+		}));
 
 		return context.json({
 			supplier: {

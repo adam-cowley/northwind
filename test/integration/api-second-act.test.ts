@@ -79,6 +79,18 @@ describe("Northwind Ops API — second act", () => {
 		expect(updated.line.quantity).toBe(7);
 	});
 
+	it("serves upsell opportunities in the UI's wire shape", async () => {
+		const response = await app.request(`/api/orders/${orderId}/upsell`, {
+			headers: { cookie },
+		});
+		const body = (await response.json()) as {
+			opportunities: { productID: number; name: string; times: number }[];
+		};
+
+		expect(response.status).toBe(200);
+		expect(Array.isArray(body.opportunities)).toBe(true);
+	});
+
 	it("422s an edge update that violates the line rules (NTS-509 through the API)", async () => {
 		const detail = await app.request(`/api/orders/${orderId}`, {
 			headers: { cookie },

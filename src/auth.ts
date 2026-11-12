@@ -14,11 +14,9 @@ sits behind the guard except the login page and the health check.
 const SESSION_COOKIE = "nw_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-export function authCredentials(): {
-	user: string;
-	password: string;
-	secret: string;
-} {
+// Read once: the env does not change mid-process, and the missing-secret
+// warning must fire once at boot, not on every authenticated request.
+const CREDENTIALS = ((): { user: string; password: string; secret: string } => {
 	const user = process.env["NW_AUTH_USER"] ?? "admin";
 	const password = process.env["NW_AUTH_PASSWORD"] ?? "northwind";
 	const secret = process.env["NW_AUTH_SECRET"];
@@ -30,6 +28,14 @@ export function authCredentials(): {
 	}
 
 	return { user, password, secret: secret ?? "northwind-demo-secret" };
+})();
+
+export function authCredentials(): {
+	user: string;
+	password: string;
+	secret: string;
+} {
+	return CREDENTIALS;
 }
 
 function sign(payload: string, secret: string): string {

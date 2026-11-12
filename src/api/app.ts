@@ -8,15 +8,17 @@ import {
 	type QueryExecutedEvent,
 	type RelationshipEdgeRead,
 	formatSchemaDrift,
-	inspectSchema,
+	getModel,
+	inspectSchemaAndDrift,
 	jsonSafeRecord,
 	ontologyMarkdown,
-	schemaDrift,
 	toJson,
+	validate,
 	type WithMethods,
 } from "neode";
 import type Neode from "neode";
 import { currentUser, login, logout, loginPage } from "../auth.js";
+import { OrderLine } from "../models/order-line.js";
 import { features } from "../features/index.js";
 import { mapApiError } from "./errors.js";
 import { intQuery } from "./queries.js";
@@ -236,7 +238,8 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 	// ---- Catalog ----
 	app.get("/api/catalog", async (context) => {
-		const page = intQuery(context, "page", 1);
+		// page 0 would compute a negative SKIP — the page floor is 1
+		const page = Math.max(1, intQuery(context, "page", 1));
 		const limit = intQuery(context, "limit", 12);
 
 		const filter: Record<string, unknown> = {};
@@ -247,7 +250,10 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 		const result = await service.catalog(page, limit, filter);
 
-		return context.json({ ...result, items: result.items.map((item) => toJson(item)) });
+		return context.json({
+			...result,
+			items: result.items.map((item) => toJson(item)),
+		});
 	});
 
 	app.get("/api/products/:id", async (context) => {
@@ -259,9 +265,10 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 		return context.json({
 			product: toJson(detail.product),
+			// Same nested shape as /api/search — the UI reads hit.product.*
 			similar: detail.similar.map((hit) => ({
 				score: hit.score,
-				...toJson(hit.entity),
+				product: toJson(hit.entity),
 			})),
 		});
 	});
@@ -339,7 +346,10 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 			intQuery(context, "limit", 20),
 		);
 
-		return context.json({ ...feed, items: feed.items.map((item) => toJson(item)) });
+		return context.json({
+			...feed,
+			items: feed.items.map((item) => toJson(item)),
+		});
 	});
 
 	app.get("/api/orders/:id", async (context) => {
@@ -387,9 +397,11 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 	});
 
 	app.get("/api/orders/:id/upsell", async (context) => {
-		return context.json(
-			await service.upsellForOrder(Number(context.req.param("id"))),
-		);
+		return context.json({
+			opportunities: await service.upsellForOrder(
+				Number(context.req.param("id")),
+			),
+		});
 	});
 
 	app.post("/api/orders/:id/lines", async (context) => {
@@ -513,20 +525,16 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 	// ---- Ops: schema, drift, inspector, health ----
 	app.get("/api/schema", async (context) => {
-		const connection = neode.getConnection();
-
-		const inspection = await inspectSchema(connection);
-		const drift = await schemaDrift(connection);
+		// One probe serves both payloads — schemaDrift() inspects internally
+		const { inspection, drift } = await inspectSchemaAndDrift(
+			neode.getConnection(),
+		);
 
 		return context.json({ inspection, drift: formatSchemaDrift(drift) });
 	});
 
 	app.get("/api/inspector", (context) => {
-		const request = context.req.query("request");
-
-		return context.json({
-			statements: request === undefined ? inspector : inspector.slice(-200),
-		});
+		return context.json({ statements: inspector });
 	});
 
 	app.get("/api/events", (context) => {
@@ -560,9 +568,6 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 		}>();
 
 		// Validate against the OrderLine schema before touching the edge
-		const { OrderLine } = await import("../models/order-line.js");
-		const { getModel, validate } = await import("neode");
-
 		const patch: Record<string, unknown> = {};
 		if (body.quantity !== undefined) patch["quantity"] = body.quantity;
 		if (body.discount !== undefined) patch["discount"] = body.discount;
