@@ -1,5 +1,5 @@
 import { fromEnv, waitUntilReachable } from "neode";
-import { loadConfig } from "../config.js";
+import { loadConfig, authFromEnv } from "../config.js";
 import { graphCounts, seed } from "./seed.js";
 
 /**
@@ -15,9 +15,12 @@ async function main(): Promise<void> {
 
 	// Ops demo: wait for the database with exponential-ish backoff (fresh
 	// containers boot slow), using the library's connectivity helpers
+	const auth = authFromEnv();
+
 	await waitUntilReachable(
 		{
 			uri: config.connectivity.uri,
+			...(auth === undefined ? {} : { auth }),
 			...(config.connectivity.database === undefined
 				? {}
 				: { database: config.connectivity.database }),
@@ -30,7 +33,8 @@ async function main(): Promise<void> {
 
 	if (fresh) {
 		const { wipe } = await import("neode");
-		await wipe(neode);
+		// --fresh is the operator's explicit confirmation (NTS-578 guard)
+		await wipe(neode, { confirm: true });
 		console.log("graph wiped");
 	}
 

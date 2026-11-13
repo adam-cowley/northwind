@@ -23,7 +23,8 @@
 	"dependencies": {
 		"@hono/node-server": "^1.14.0",
 		"hono": "^4.7.0",
-		"neode": "link:../neode-ogm-nts-664",
+		"neode": "file:vendor/neode-1.0.0-next.2.tgz",
+		"neo4j-driver": "^6.0.1",
 		"recharts": "^3.10.1"
 	},
 	"devDependencies": {

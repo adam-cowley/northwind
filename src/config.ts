@@ -1,4 +1,6 @@
 /** Demo configuration: the NW_* env vars over the library's NEO4J_* set. */
+import type { AuthToken } from "neo4j-driver";
+
 export interface NorthwindConfig {
 	port: number;
 	database: string | undefined;
@@ -29,4 +31,17 @@ export function loadConfig(): NorthwindConfig {
 			database: process.env["NEO4J_DATABASE"],
 		},
 	};
+}
+
+/**
+Basic auth from the standard NEO4J_USERNAME / NEO4J_PASSWORD env — the
+embedded Relate engine needs none, so it stays undefined without them.
+*/
+export function authFromEnv(): AuthToken | undefined {
+	const username = process.env["NEO4J_USERNAME"];
+	const password = process.env["NEO4J_PASSWORD"];
+
+	return username !== undefined && password !== undefined
+		? { scheme: "basic", principal: username, credentials: password }
+		: undefined;
 }

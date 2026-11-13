@@ -6,7 +6,7 @@ import {
 	fromEnv,
 } from "neode";
 import Neode from "neode";
-import { loadConfig } from "./config.js";
+import { loadConfig, authFromEnv } from "./config.js";
 
 /**
 Shared connection setup for both servers (Hono + Express). A real server
@@ -20,8 +20,11 @@ export async function connect(): Promise<Neode> {
 	if (process.env["NEO4J_URI"] || process.env["NEO4J_HOST"]) {
 		const neode = fromEnv();
 
+		const auth = authFromEnv();
+
 		await verifyConnectivity({
 			uri: config.connectivity.uri,
+			...(auth === undefined ? {} : { auth }),
 			...(config.connectivity.database === undefined
 				? {}
 				: { database: config.connectivity.database }),

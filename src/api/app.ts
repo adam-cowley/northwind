@@ -9,9 +9,10 @@ import {
 	type RelationshipEdgeRead,
 	formatSchemaDrift,
 	getModel,
-	inspectSchemaAndDrift,
+	inspectSchema,
 	jsonSafeRecord,
 	ontologyMarkdown,
+	schemaDrift,
 	toJson,
 	validate,
 	type WithMethods,
@@ -525,10 +526,13 @@ export function createApp(neode: Neode, service: NorthwindService): Hono {
 
 	// ---- Ops: schema, drift, inspector, health ----
 	app.get("/api/schema", async (context) => {
-		// One probe serves both payloads — schemaDrift() inspects internally
-		const { inspection, drift } = await inspectSchemaAndDrift(
-			neode.getConnection(),
-		);
+		// Two probes: the combined inspectSchemaAndDrift() is not on the
+		// 1.0 surface yet (NTS-684)
+		const connection = neode.getConnection();
+		const [inspection, drift] = await Promise.all([
+			inspectSchema(connection),
+			schemaDrift(connection),
+		]);
 
 		return context.json({ inspection, drift: formatSchemaDrift(drift) });
 	});
